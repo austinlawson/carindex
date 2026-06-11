@@ -32,18 +32,24 @@ export function rankFeedListings(listings: CarListing[]) {
     .map(({ listing }) => listing);
 }
 
-export function getFeedMediaPreloadMode(index: number, activeIndex: number): MediaPreloadMode {
+export function getFeedMediaPreloadMode(
+  index: number,
+  activeIndex: number,
+  options: { hasVideo?: boolean } = {}
+): MediaPreloadMode {
   const distanceFromActive = index - activeIndex;
+  const autoAheadDistance = options.hasVideo ? 8 : 3;
+  const metadataAheadDistance = options.hasVideo ? 12 : 5;
 
   if (distanceFromActive === 0) {
     return "auto";
   }
 
-  if (distanceFromActive > 0 && distanceFromActive <= 3) {
+  if (distanceFromActive > 0 && distanceFromActive <= autoAheadDistance) {
     return "auto";
   }
 
-  if (distanceFromActive > 3 && distanceFromActive <= 5) {
+  if (distanceFromActive > autoAheadDistance && distanceFromActive <= metadataAheadDistance) {
     return "metadata";
   }
 

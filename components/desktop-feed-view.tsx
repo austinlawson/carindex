@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import type { UIEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
   HandCoins,
@@ -15,6 +15,7 @@ import {
 import { AiVoiceControl } from "@/components/ai-voice-control";
 import { DealGradeBadge } from "@/components/deal-grade";
 import { FeedChromeToggle } from "@/components/feed-chrome-toggle";
+import { FeedVideoPreloader } from "@/components/feed-video-preloader";
 import { ListingDisclosureBadges } from "@/components/listing-disclosure-badges";
 import type { CarListing } from "@/data/listings";
 import { useAiVoiceTake } from "@/hooks/use-ai-voice-take";
@@ -27,6 +28,12 @@ import {
 } from "@/lib/listing-display";
 import { getFeedMediaPreloadMode } from "@/lib/feed-ranking";
 import type { MediaPreloadMode } from "@/lib/feed-ranking";
+import {
+  areVideoReadinessStatesEquivalent,
+  collectFeedVideoPreloadTargets,
+  getListingPrimaryVideo,
+  type FeedVideoReadiness
+} from "@/lib/feed-video-readiness";
 import { canMakeOffer } from "@/lib/offers";
 import { shareListing } from "@/lib/share-listing";
 import { MediaReel } from "@/src/components/MediaReel";
@@ -69,7 +76,27 @@ export function DesktopFeedView({
   isLoadingMore?: boolean;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [, setVideoReadinessByUrl] = useState<
+    Record<string, FeedVideoReadiness>
+  >({});
   const postRefs = useRef<Array<HTMLElement | null>>([]);
+  const preloadTargets = useMemo(
+    () => collectFeedVideoPreloadTargets(listings, activeIndex),
+    [activeIndex, listings]
+  );
+
+  const updateVideoReadiness = useCallback((url: string, state: FeedVideoReadiness) => {
+    setVideoReadinessByUrl((current) => {
+      if (areVideoReadinessStatesEquivalent(current[url], state)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [url]: state
+      };
+    });
+  }, []);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -137,6 +164,10 @@ export function DesktopFeedView({
 
   return (
     <section className="relative h-full overflow-hidden px-6">
+      <FeedVideoPreloader
+        targets={preloadTargets}
+        onReadinessChange={updateVideoReadiness}
+      />
       {!feedChromeHidden ? (
         <div className="absolute left-[max(1.5rem,calc(50%_-_360px))] top-1/2 z-30 h-[min(560px,calc(100dvh-150px))] -translate-y-1/2">
           {navigation}
@@ -156,7 +187,9 @@ export function DesktopFeedView({
               listing={listing}
               currentUserId={currentUserId}
               isActive={index === activeIndex}
-              mediaPreloadMode={getFeedMediaPreloadMode(index, activeIndex)}
+              mediaPreloadMode={getFeedMediaPreloadMode(index, activeIndex, {
+                hasVideo: Boolean(getListingPrimaryVideo(listing))
+              })}
               feedChromeHidden={feedChromeHidden}
               onFeedChromeHiddenChange={onFeedChromeHiddenChange}
               isSaved={isSaved(listing.id)}
