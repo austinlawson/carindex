@@ -371,7 +371,13 @@ function buildBuyerBrief({
   conditionLabel?: string;
 }) {
   const vehicle = `${listing.year} ${listing.make} ${listing.model}`.trim();
-  const source = isExternalInventory ? "Imported dealer listing" : "Private seller upload";
+  const source = isExternalInventory
+    ? listing.sourceMode === "ebay"
+      ? "Imported eBay listing"
+      : listing.sellerType === "Dealer"
+        ? "Imported dealer listing"
+        : "Imported source listing"
+    : "Private seller upload";
   const disclosure = unique([titleLabel, conditionLabel, ...knownIssueLabels]).slice(0, 3);
   const hasUnverifiedOrganicMedia = listing.sourceMode === "user" && !hasOrganicMediaProof;
   const hasFlaggedOrganicMedia =

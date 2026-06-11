@@ -71,6 +71,7 @@ export function getContactLabel(listing: CarListing) {
   const contactNoun = listing.sellerType === "Dealer" ? "Dealer" : "Seller";
   if (listing.sellerPhone) return `Call ${contactNoun}`;
   if (listing.sellerEmail) return `Email ${contactNoun}`;
+  if (listing.sourceMode === "ebay") return "View on eBay";
   if (listing.sellerType === "Dealer") return "Contact Dealer";
   if (listing.sourceMode && listing.sourceMode !== "user" && listing.sourceMode !== "mock") {
     return `Contact ${contactNoun}`;

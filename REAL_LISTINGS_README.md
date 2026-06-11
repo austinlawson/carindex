@@ -138,6 +138,60 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" "https://your-domain.com/ap
 
 The sync writes operational history to `public.provider_sync_runs`. Apply `supabase/migrations/006_provider_sync_runs.sql` before relying on the monthly call guard in production.
 
+## eBay Motors Production Sync
+
+The eBay sync endpoint is:
+
+```text
+GET /api/ebay/sync
+POST /api/ebay/sync
+```
+
+It uses the official eBay Browse API, not scraping. The sync searches eBay Motors category `6001` by default, normalizes usable vehicle listings into `source_mode='ebay'`, refreshes media rows, and archives stale eBay rows after `EBAY_STALE_GRACE_HOURS`. User-uploaded and MarketCheck listings are never touched by this sync.
+
+Vercel cron runs this endpoint daily at `09:20 UTC` through `vercel.json`, twenty minutes after the MarketCheck sync.
+
+Required production environment variables:
+
+```env
+EBAY_CLIENT_ID=your_ebay_app_id
+EBAY_CLIENT_SECRET=your_ebay_cert_id
+EBAY_MARKETPLACE_ID=EBAY_US
+EBAY_CATEGORY_ID=6001
+EBAY_SORT=newlyListed
+EBAY_ROWS=50
+EBAY_BUYING_OPTIONS=FIXED_PRICE,AUCTION,BEST_OFFER
+EBAY_LOCAL_PICKUP_ONLY=false
+EBAY_PICKUP_ZIP=36360
+EBAY_PICKUP_RADIUS=250
+EBAY_MAX_MEDIA_PER_LISTING=12
+EBAY_STALE_GRACE_HOURS=72
+EBAY_ARCHIVE_MIN_SEEN_LISTINGS=5
+EBAY_MONTHLY_CALL_LIMIT=5000
+EBAY_MONTHLY_SAFETY_BUFFER=500
+CRON_SECRET=your_random_secret
+```
+
+`EBAY_ACCESS_TOKEN` is available for quick local testing with a short-lived application token, but production should use `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` so the app can mint fresh application tokens automatically. `EBAY_SYNC_SECRET` can be used instead of `CRON_SECRET` for manual eBay sync access.
+
+Optional filters:
+
+- `EBAY_QUERY`: keyword filter. Leave empty for broad category search.
+- `EBAY_LOCAL_PICKUP_ONLY=true`: narrows to local-pickup items near `EBAY_PICKUP_ZIP`.
+- `EBAY_SORT=endingSoonest`: useful for auction-heavy tests.
+
+Manual dry run:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" "https://your-domain.com/api/ebay/sync?dry=1"
+```
+
+Manual sync:
+
+```bash
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" "https://your-domain.com/api/ebay/sync"
+```
+
 ## Phone Preview With ngrok
 
 To view the local prototype on your phone, add an ngrok authtoken to `.env.local`:
@@ -167,9 +221,10 @@ NGROK_DOMAIN=your-reserved-domain.ngrok-free.app
 
 ```bash
 npm run fetch:marketcheck:dry
+npm run fetch:ebay:dry
 ```
 
-Dry run prints the target, radius plan, cache count, and call budget status. It does not make API requests and does not increment `callsUsed`.
+Dry run prints provider config and call budget status. It does not make API requests and does not increment `callsUsed`.
 
 ## Usage And Cache Commands
 
@@ -196,24 +251,14 @@ The local ledger tracks:
 - last run time
 - notes
 
-Before a MarketCheck request, the script checks:
+Before a provider request, the sync checks:
 
 ```text
 callsUsed < MARKETCHECK_MONTHLY_CALL_LIMIT - MARKETCHECK_MONTHLY_SAFETY_BUFFER
-callsThisRun < MARKETCHECK_MAX_CALLS_PER_RUN
+callsUsed < EBAY_MONTHLY_CALL_LIMIT - EBAY_MONTHLY_SAFETY_BUFFER
 ```
 
 The ledger increments only after an actual HTTP request is made, and it is saved after each request.
-
-## Optional API Placeholder
-
-An eBay Motors placeholder exists:
-
-```bash
-npm run fetch:ebay
-```
-
-It exits cleanly unless `EBAY_MOTORS_API_KEY` is present. Add provider-specific mapping only for authorized API data.
 
 ## Data Rules
 

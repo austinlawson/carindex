@@ -3,6 +3,10 @@
     {
       "path": "/api/marketcheck/sync",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/ebay/sync",
+      "schedule": "20 9 * * *"
     }
   ]
 }

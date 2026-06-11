@@ -12,6 +12,7 @@
     "fetch:marketcheck": "tsx scripts/fetch-marketcheck.ts",
     "fetch:marketcheck:dry": "tsx scripts/fetch-marketcheck.ts --dry",
     "fetch:ebay": "tsx scripts/fetch-ebay.ts",
+    "fetch:ebay:dry": "tsx scripts/fetch-ebay.ts --dry",
     "supabase:import-snapshot": "tsx scripts/import-snapshot-to-supabase.ts",
     "supabase:import-snapshot:dry": "tsx scripts/import-snapshot-to-supabase.ts --dry",
     "cleanup:ai-voice": "tsx scripts/cleanup-ai-voice-cache.ts",
