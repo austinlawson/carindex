@@ -20,6 +20,16 @@ const maxPreloadTargets = 4;
 const videoLookaheadListings = 12;
 const readyBufferedRatio = 0.92;
 const warmBufferedRatio = 0.8;
+const readyLeadBufferRules = [
+  { maxDurationSeconds: 30, readyLeadSeconds: 12 },
+  { maxDurationSeconds: 60, readyLeadSeconds: 18 },
+  { maxDurationSeconds: 120, readyLeadSeconds: 30 },
+  { maxDurationSeconds: 180, readyLeadSeconds: 45 },
+  { maxDurationSeconds: 300, readyLeadSeconds: 60 },
+  { maxDurationSeconds: 600, readyLeadSeconds: 90 },
+  { maxDurationSeconds: 900, readyLeadSeconds: 120 },
+  { maxDurationSeconds: 1200, readyLeadSeconds: 150 }
+] as const;
 
 export function getListingPrimaryVideo(listing: CarListing): ListingMediaItem | undefined {
   return listing.mediaItems.find((item) => item.type === "video" && Boolean(item.url));
@@ -88,7 +98,7 @@ export function isFeedVideoBasicallyReady(state: FeedVideoReadiness | undefined)
   if (state.durationSeconds <= 0) return state.readyState >= 3;
   if (state.bufferedRatio >= readyBufferedRatio) return true;
 
-  return state.readyState >= 3 && state.bufferedSeconds >= getReadyLeadSeconds(state.durationSeconds);
+  return state.bufferedSeconds >= getReadyLeadSeconds(state.durationSeconds);
 }
 
 export function isFeedVideoWarm(state: FeedVideoReadiness | undefined) {
@@ -96,7 +106,7 @@ export function isFeedVideoWarm(state: FeedVideoReadiness | undefined) {
   if (isFeedVideoBasicallyReady(state)) return true;
   if (state.bufferedRatio >= warmBufferedRatio) return true;
 
-  return state.readyState >= 3 && state.bufferedSeconds >= getWarmLeadSeconds(state.durationSeconds);
+  return state.bufferedSeconds >= getWarmLeadSeconds(state.durationSeconds);
 }
 
 export function getVideoDeferralSlots(
@@ -146,11 +156,19 @@ function getInitialBufferedSeconds(video: HTMLVideoElement) {
 }
 
 function getReadyLeadSeconds(durationSeconds: number) {
-  return Math.min(30, Math.max(8, durationSeconds * 0.25));
+  if (durationSeconds <= 0) return 12;
+  if (durationSeconds <= 20) return Math.min(durationSeconds * 0.65, 10);
+
+  const rule = readyLeadBufferRules.find((candidate) => durationSeconds <= candidate.maxDurationSeconds);
+  if (rule) {
+    return Math.min(rule.readyLeadSeconds, durationSeconds * 0.85);
+  }
+
+  return Math.min(180, Math.max(150, durationSeconds * 0.12));
 }
 
 function getWarmLeadSeconds(durationSeconds: number) {
-  if (durationSeconds <= 0) return 10;
+  if (durationSeconds <= 0) return 8;
 
-  return Math.min(20, Math.max(6, durationSeconds * 0.16));
+  return Math.max(6, getReadyLeadSeconds(durationSeconds) * 0.55);
 }
