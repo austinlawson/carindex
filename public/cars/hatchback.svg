@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Small hatchback">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#93a8b4"/>
+      <stop offset="0.54" stop-color="#42535c"/>
+      <stop offset="1" stop-color="#101315"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#e7b647"/>
+      <stop offset="0.52" stop-color="#905b19"/>
+      <stop offset="1" stop-color="#ffd86f"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="26" stdDeviation="20" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 625 C160 565 280 595 450 535 C610 480 740 520 900 450 L900 1600 L0 1600 Z" fill="#273138" opacity="0.55"/>
+  <rect y="910" width="900" height="690" fill="#121416"/>
+  <path d="M40 1210 H860" stroke="#fff" stroke-width="9" opacity="0.1"/>
+  <g transform="translate(88 805)" filter="url(#shadow)">
+    <path d="M80 238 C114 136 207 82 350 82 L486 82 C604 83 692 150 745 250 L802 278 C827 290 843 315 843 343 L843 403 C843 432 820 455 791 455 L78 455 C49 455 26 432 26 403 L26 324 C26 286 49 252 80 238 Z" fill="url(#paint)"/>
+    <path d="M225 113 L362 113 C420 113 467 150 494 218 L154 218 C171 162 194 126 225 113 Z" fill="#d7f2ff" opacity="0.67"/>
+    <path d="M508 117 C560 132 606 172 638 224 L510 218 C506 182 505 147 508 117 Z" fill="#d7f2ff" opacity="0.5"/>
+    <path d="M79 265 L178 238 L668 239 L789 282 L790 333 L76 333 Z" fill="#ffffff" opacity="0.2"/>
+    <circle cx="203" cy="446" r="72" fill="#0b0c0f"/>
+    <circle cx="203" cy="446" r="37" fill="#d8d4c8"/>
+    <circle cx="651" cy="446" r="72" fill="#0b0c0f"/>
+    <circle cx="651" cy="446" r="37" fill="#d8d4c8"/>
+    <rect x="54" y="290" width="74" height="20" rx="10" fill="#fff1bd"/>
+    <rect x="754" y="293" width="54" height="20" rx="10" fill="#f46258"/>
+  </g>
+</svg>

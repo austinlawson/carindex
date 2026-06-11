@@ -1,0 +1,43 @@
+{
+  "name": "ai-car-classifieds-feed",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:phone": "tsx scripts/dev-phone.ts",
+    "preview:phone": "next build && next start -H 0.0.0.0 -p 3000",
+    "build": "next build",
+    "start": "next start",
+    "import:listings": "tsx scripts/import-listings-csv.ts",
+    "fetch:marketcheck": "tsx scripts/fetch-marketcheck.ts",
+    "fetch:marketcheck:dry": "tsx scripts/fetch-marketcheck.ts --dry",
+    "fetch:ebay": "tsx scripts/fetch-ebay.ts",
+    "supabase:import-snapshot": "tsx scripts/import-snapshot-to-supabase.ts",
+    "supabase:import-snapshot:dry": "tsx scripts/import-snapshot-to-supabase.ts --dry",
+    "cleanup:ai-voice": "tsx scripts/cleanup-ai-voice-cache.ts",
+    "cleanup:ai-voice:dry": "tsx scripts/cleanup-ai-voice-cache.ts --dry",
+    "cache:clear-listings": "tsx scripts/clear-listings-cache.ts",
+    "cache:show-usage": "tsx scripts/show-api-usage.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.1",
+    "lucide-react": "^0.468.0",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tus-js-client": "^4.3.1"
+  },
+  "devDependencies": {
+    "@next/env": "^16.2.9",
+    "@ngrok/ngrok": "^1.7.0",
+    "@types/node": "^20.17.10",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

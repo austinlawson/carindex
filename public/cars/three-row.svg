@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Three row SUV">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#b5bbc1"/>
+      <stop offset="0.52" stop-color="#5d646b"/>
+      <stop offset="1" stop-color="#111315"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#b8aca0"/>
+      <stop offset="0.52" stop-color="#584e48"/>
+      <stop offset="1" stop-color="#ddd1c4"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="30" stdDeviation="24" flood-color="#000" flood-opacity="0.54"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 650 C165 575 290 612 450 548 C625 478 746 515 900 452 L900 1600 L0 1600 Z" fill="#303437" opacity="0.56"/>
+  <rect y="900" width="900" height="700" fill="#121416"/>
+  <path d="M120 1140 H780" stroke="#fff" stroke-width="10" opacity="0.12"/>
+  <g transform="translate(44 748)" filter="url(#shadow)">
+    <path d="M118 268 C145 142 247 72 410 72 L594 72 C739 72 835 162 866 303 L880 321 C889 335 894 351 894 368 L894 446 C894 479 868 505 835 505 L100 505 C65 505 36 477 36 442 L36 348 C36 310 68 278 118 268 Z" fill="url(#paint)"/>
+    <path d="M258 108 L426 108 C494 108 542 150 572 230 L182 230 C199 164 224 124 258 108 Z" fill="#d6f1fb" opacity="0.6"/>
+    <path d="M585 112 L662 112 C724 113 777 163 802 240 L589 230 C582 182 581 146 585 112 Z" fill="#d6f1fb" opacity="0.48"/>
+    <path d="M108 300 L208 264 L760 265 L860 304 L856 365 L104 365 Z" fill="#ffffff" opacity="0.18"/>
+    <circle cx="234" cy="496" r="84" fill="#0b0c0f"/>
+    <circle cx="234" cy="496" r="43" fill="#ddd8d3"/>
+    <circle cx="718" cy="496" r="84" fill="#0b0c0f"/>
+    <circle cx="718" cy="496" r="43" fill="#ddd8d3"/>
+    <rect x="74" y="324" width="80" height="24" rx="12" fill="#fff3c8"/>
+    <rect x="802" y="324" width="65" height="24" rx="12" fill="#f16764"/>
+  </g>
+</svg>

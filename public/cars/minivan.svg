@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Silver minivan">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#b8c1cb"/>
+      <stop offset="0.5" stop-color="#626d78"/>
+      <stop offset="1" stop-color="#111316"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#d9dde2"/>
+      <stop offset="0.52" stop-color="#737c86"/>
+      <stop offset="1" stop-color="#f7f8fa"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="30" stdDeviation="24" flood-color="#000" flood-opacity="0.52"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 645 C150 592 300 620 460 560 C640 492 750 520 900 458 L900 1600 L0 1600 Z" fill="#343c45" opacity="0.5"/>
+  <rect y="910" width="900" height="690" fill="#121417"/>
+  <path d="M70 1180 H830" stroke="#fff" stroke-width="10" opacity="0.12"/>
+  <g transform="translate(46 782)" filter="url(#shadow)">
+    <path d="M96 250 C124 144 214 88 360 88 L646 88 C746 88 824 157 852 254 L870 315 L870 432 C870 463 845 488 814 488 L86 488 C55 488 30 463 30 432 L30 336 C30 294 58 260 96 250 Z" fill="url(#paint)"/>
+    <path d="M226 124 L382 124 C444 124 492 162 520 230 L156 230 C175 171 198 137 226 124 Z" fill="#d7eff8" opacity="0.65"/>
+    <rect x="535" y="124" width="196" height="106" rx="22" fill="#d7eff8" opacity="0.46"/>
+    <path d="M96 294 L186 260 L770 260 L852 300 L848 360 L92 360 Z" fill="#ffffff" opacity="0.2"/>
+    <circle cx="224" cy="480" r="82" fill="#0a0b0f"/>
+    <circle cx="224" cy="480" r="42" fill="#d9dde1"/>
+    <circle cx="704" cy="480" r="82" fill="#0a0b0f"/>
+    <circle cx="704" cy="480" r="42" fill="#d9dde1"/>
+    <rect x="62" y="320" width="80" height="23" rx="11.5" fill="#fff4c8"/>
+    <rect x="794" y="322" width="60" height="23" rx="11.5" fill="#e45e60"/>
+  </g>
+</svg>

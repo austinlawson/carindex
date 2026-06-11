@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Blue electric hatchback">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#122235"/>
+      <stop offset="0.52" stop-color="#31506a"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#2ec0d3"/>
+      <stop offset="0.52" stop-color="#0f5369"/>
+      <stop offset="1" stop-color="#9defff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="28" stdDeviation="22" flood-color="#000" flood-opacity="0.56"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 630 C150 570 280 600 450 535 C630 465 742 505 900 430 L900 1600 L0 1600 Z" fill="#182b3b" opacity="0.62"/>
+  <rect y="910" width="900" height="690" fill="#111417"/>
+  <path d="M80 1190 H820" stroke="#9defff" stroke-width="10" opacity="0.18"/>
+  <g transform="translate(78 792)" filter="url(#shadow)">
+    <path d="M82 250 C118 145 220 88 375 88 L515 88 C646 90 735 162 787 270 L816 284 C842 296 858 322 858 350 L858 416 C858 445 835 468 806 468 L82 468 C52 468 28 444 28 414 L28 337 C28 299 50 262 82 250 Z" fill="url(#paint)"/>
+    <path d="M242 120 L394 120 C456 120 505 157 532 228 L164 228 C181 170 207 134 242 120 Z" fill="#d9fbff" opacity="0.68"/>
+    <path d="M548 124 C607 136 657 176 690 234 L550 228 C544 187 544 152 548 124 Z" fill="#d9fbff" opacity="0.5"/>
+    <path d="M82 280 L186 250 L704 250 L812 288 L812 344 L80 344 Z" fill="#d3fbff" opacity="0.2"/>
+    <circle cx="210" cy="458" r="76" fill="#0a0b0f"/>
+    <circle cx="210" cy="458" r="38" fill="#d5f5f7"/>
+    <circle cx="682" cy="458" r="76" fill="#0a0b0f"/>
+    <circle cx="682" cy="458" r="38" fill="#d5f5f7"/>
+    <rect x="58" y="306" width="78" height="22" rx="11" fill="#ecffdf"/>
+    <rect x="770" y="308" width="58" height="22" rx="11" fill="#74f4ff"/>
+  </g>
+</svg>

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Dark sedan at night">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#101827"/>
+      <stop offset="0.58" stop-color="#263246"/>
+      <stop offset="1" stop-color="#101010"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#3f4d63"/>
+      <stop offset="0.52" stop-color="#10151d"/>
+      <stop offset="1" stop-color="#4f6079"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="24" stdDeviation="18" flood-color="#000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 620 C180 540 320 580 460 530 C620 470 720 520 900 440 L900 1600 L0 1600 Z" fill="#202938" opacity="0.72"/>
+  <rect y="940" width="900" height="660" fill="#111318"/>
+  <path d="M-60 1220 L960 1040" stroke="#ffffff" stroke-width="12" opacity="0.1"/>
+  <path d="M-20 1380 L940 1215" stroke="#ffffff" stroke-width="8" opacity="0.08"/>
+  <g transform="translate(80 790)" filter="url(#shadow)">
+    <path d="M90 250 C140 145 235 95 380 95 L526 95 C650 96 735 157 786 253 L818 262 C846 271 865 298 865 327 L865 388 C865 417 842 440 813 440 L87 440 C58 440 35 417 35 388 L35 332 C35 297 58 267 90 250 Z" fill="url(#paint)"/>
+    <path d="M248 122 L385 122 C446 122 493 155 522 222 L172 222 C189 170 213 139 248 122 Z" fill="#c8e8ff" opacity="0.62"/>
+    <path d="M536 126 C596 135 648 171 684 225 L548 225 C540 185 535 150 536 126 Z" fill="#c8e8ff" opacity="0.48"/>
+    <path d="M88 275 L185 248 L700 248 L810 282 L812 333 L83 333 Z" fill="#68758c" opacity="0.42"/>
+    <circle cx="217" cy="420" r="74" fill="#0c0d10"/>
+    <circle cx="217" cy="420" r="38" fill="#c9d3df"/>
+    <circle cx="681" cy="420" r="74" fill="#0c0d10"/>
+    <circle cx="681" cy="420" r="38" fill="#c9d3df"/>
+    <rect x="61" y="292" width="76" height="20" rx="10" fill="#fff4c8"/>
+    <rect x="758" y="292" width="72" height="20" rx="10" fill="#ff6d5e"/>
+  </g>
+</svg>

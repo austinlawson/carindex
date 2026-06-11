@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Black pickup truck">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#1c2633"/>
+      <stop offset="0.55" stop-color="#3c4854"/>
+      <stop offset="1" stop-color="#0f1012"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#2b3038"/>
+      <stop offset="0.52" stop-color="#090b0f"/>
+      <stop offset="1" stop-color="#4c5562"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="30" stdDeviation="24" flood-color="#000" flood-opacity="0.62"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 600 C170 565 315 595 480 535 C660 470 744 495 900 430 L900 1600 L0 1600 Z" fill="#202a35" opacity="0.6"/>
+  <rect y="895" width="900" height="705" fill="#111214"/>
+  <path d="M40 1168 H860" stroke="#fff" stroke-width="10" opacity="0.1"/>
+  <g transform="translate(24 780)" filter="url(#shadow)">
+    <path d="M60 292 L92 198 C108 151 151 120 201 120 L410 120 C468 120 514 160 531 216 L552 287 L849 287 C877 287 900 310 900 338 L900 433 C900 464 875 489 844 489 L89 489 C57 489 31 463 31 431 L31 337 C31 316 42 300 60 292 Z" fill="url(#paint)"/>
+    <path d="M211 152 L373 152 C427 152 463 184 479 237 L157 237 C168 185 185 158 211 152 Z" fill="#c8e7f5" opacity="0.45"/>
+    <path d="M552 287 L846 287 L846 224 L580 214 Z" fill="#15191f" opacity="0.86"/>
+    <path d="M86 310 L512 293 L852 306 L856 363 L86 363 Z" fill="#ffffff" opacity="0.12"/>
+    <circle cx="220" cy="482" r="86" fill="#050609"/>
+    <circle cx="220" cy="482" r="43" fill="#c8ced4"/>
+    <circle cx="710" cy="482" r="86" fill="#050609"/>
+    <circle cx="710" cy="482" r="43" fill="#c8ced4"/>
+    <rect x="52" y="326" width="82" height="24" rx="12" fill="#fff1bf"/>
+    <rect x="824" y="326" width="54" height="24" rx="12" fill="#ff645c"/>
+  </g>
+</svg>

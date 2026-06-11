@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Green wagon">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#899c93"/>
+      <stop offset="0.52" stop-color="#3a4b44"/>
+      <stop offset="1" stop-color="#111311"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#6f816f"/>
+      <stop offset="0.55" stop-color="#263427"/>
+      <stop offset="1" stop-color="#9bae8f"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="28" stdDeviation="22" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 610 C150 548 305 586 470 525 C650 460 762 498 900 430 L900 1600 L0 1600 Z" fill="#203026" opacity="0.62"/>
+  <rect y="910" width="900" height="690" fill="#121414"/>
+  <path d="M-40 1210 H940" stroke="#fff" stroke-width="9" opacity="0.1"/>
+  <g transform="translate(58 778)" filter="url(#shadow)">
+    <path d="M88 265 C124 155 225 98 384 98 L590 98 C708 98 793 165 842 275 L857 286 C878 300 890 324 890 349 L890 424 C890 454 866 478 836 478 L81 478 C52 478 28 454 28 425 L28 340 C28 305 52 275 88 265 Z" fill="url(#paint)"/>
+    <path d="M242 130 L398 130 C457 130 504 164 532 230 L165 230 C182 176 207 143 242 130 Z" fill="#c9eef6" opacity="0.62"/>
+    <path d="M542 131 L619 131 C675 132 726 169 760 232 L547 230 C540 190 539 154 542 131 Z" fill="#c9eef6" opacity="0.48"/>
+    <path d="M87 289 L188 257 L732 257 L843 293 L842 349 L84 349 Z" fill="#ffffff" opacity="0.17"/>
+    <circle cx="218" cy="469" r="80" fill="#0b0d0c"/>
+    <circle cx="218" cy="469" r="41" fill="#d1d6d0"/>
+    <circle cx="702" cy="469" r="80" fill="#0b0d0c"/>
+    <circle cx="702" cy="469" r="41" fill="#d1d6d0"/>
+    <rect x="62" y="311" width="82" height="22" rx="11" fill="#fff4c8"/>
+    <rect x="788" y="311" width="62" height="22" rx="11" fill="#f05d5e"/>
+  </g>
+</svg>

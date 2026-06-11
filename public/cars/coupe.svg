@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Red coupe">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#a3a9ad"/>
+      <stop offset="0.54" stop-color="#51595f"/>
+      <stop offset="1" stop-color="#111315"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#dc3943"/>
+      <stop offset="0.54" stop-color="#7b1620"/>
+      <stop offset="1" stop-color="#ff7777"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="26" stdDeviation="20" flood-color="#000" flood-opacity="0.56"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 630 C175 565 305 602 450 545 C625 476 755 515 900 450 L900 1600 L0 1600 Z" fill="#30363b" opacity="0.56"/>
+  <rect y="915" width="900" height="685" fill="#121416"/>
+  <path d="M0 1200 H900" stroke="#fff" stroke-width="9" opacity="0.1"/>
+  <g transform="translate(72 824)" filter="url(#shadow)">
+    <path d="M80 230 C120 145 240 98 390 98 L482 98 C606 100 704 154 773 250 L820 262 C846 269 865 293 865 320 L865 384 C865 412 842 435 814 435 L82 435 C53 435 30 412 30 383 L30 316 C30 276 49 242 80 230 Z" fill="url(#paint)"/>
+    <path d="M260 128 L402 128 C462 128 514 160 552 220 L170 220 C193 170 222 140 260 128 Z" fill="#d7eff8" opacity="0.62"/>
+    <path d="M82 260 L190 235 L706 236 L820 270 L820 321 L80 321 Z" fill="#ffffff" opacity="0.18"/>
+    <circle cx="212" cy="426" r="72" fill="#0b0c0f"/>
+    <circle cx="212" cy="426" r="37" fill="#d9d5d1"/>
+    <circle cx="686" cy="426" r="72" fill="#0b0c0f"/>
+    <circle cx="686" cy="426" r="37" fill="#d9d5d1"/>
+    <rect x="56" y="282" width="78" height="20" rx="10" fill="#fff1bf"/>
+    <rect x="776" y="284" width="60" height="20" rx="10" fill="#ff8a76"/>
+  </g>
+</svg>

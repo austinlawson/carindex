@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600" role="img" aria-label="Large SUV">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#3b4049"/>
+      <stop offset="0.5" stop-color="#69717c"/>
+      <stop offset="1" stop-color="#101214"/>
+    </linearGradient>
+    <linearGradient id="paint" x1="0" x2="1">
+      <stop offset="0" stop-color="#323743"/>
+      <stop offset="0.52" stop-color="#11141a"/>
+      <stop offset="1" stop-color="#6e7785"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="32" stdDeviation="25" flood-color="#000" flood-opacity="0.62"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#sky)"/>
+  <path d="M0 635 C190 565 330 610 485 545 C655 473 760 505 900 445 L900 1600 L0 1600 Z" fill="#242b34" opacity="0.6"/>
+  <rect y="905" width="900" height="695" fill="#111315"/>
+  <path d="M-40 1220 H940" stroke="#fff" stroke-width="10" opacity="0.1"/>
+  <g transform="translate(35 750)" filter="url(#shadow)">
+    <path d="M122 270 C150 138 252 70 420 70 L610 70 C760 70 850 158 875 304 L884 356 L884 452 C884 483 859 508 828 508 L102 508 C68 508 40 480 40 446 L40 348 C40 310 72 278 122 270 Z" fill="url(#paint)"/>
+    <path d="M260 108 L430 108 C500 108 548 150 578 232 L182 232 C199 165 226 124 260 108 Z" fill="#d4eef8" opacity="0.48"/>
+    <rect x="592" y="110" width="178" height="122" rx="21" fill="#d4eef8" opacity="0.36"/>
+    <path d="M112 302 L214 264 L778 265 L860 307 L856 370 L110 370 Z" fill="#ffffff" opacity="0.13"/>
+    <circle cx="238" cy="500" r="88" fill="#08090d"/>
+    <circle cx="238" cy="500" r="45" fill="#cfd5da"/>
+    <circle cx="724" cy="500" r="88" fill="#08090d"/>
+    <circle cx="724" cy="500" r="45" fill="#cfd5da"/>
+    <rect x="76" y="328" width="84" height="25" rx="12.5" fill="#fff3c6"/>
+    <rect x="808" y="330" width="56" height="25" rx="12.5" fill="#f26760"/>
+  </g>
+</svg>
