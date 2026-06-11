@@ -40,6 +40,8 @@ export type ListingMediaItem = {
   type: ListingMediaType;
   thumbnailUrl?: string;
   label?: string;
+  width?: number;
+  height?: number;
   durationSeconds?: number;
 };
 

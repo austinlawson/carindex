@@ -19,6 +19,8 @@ export function databaseListingToCarListing(
       type: media.media_type,
       thumbnailUrl: media.thumbnail_url ?? undefined,
       label: media.label ?? undefined,
+      width: media.width ?? undefined,
+      height: media.height ?? undefined,
       durationSeconds: media.duration_seconds ?? undefined
     }));
 
@@ -233,6 +235,8 @@ export function mediaItemToSnapshotDatabaseInsert({
     thumbnail_url: media.thumbnailUrl ?? null,
     sort_order: sortOrder,
     label: media.label ?? null,
+    width: media.width ?? null,
+    height: media.height ?? null,
     duration_seconds: media.durationSeconds ?? null
   };
 }

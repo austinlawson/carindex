@@ -232,6 +232,16 @@ function normalizeMediaItem(item: ListingMediaItem, index: number): ListingMedia
     normalized.thumbnailUrl = thumbnailUrl;
   }
 
+  const width = toNumber(item.width, 0);
+  if (width > 0) {
+    normalized.width = Math.round(width);
+  }
+
+  const height = toNumber(item.height, 0);
+  if (height > 0) {
+    normalized.height = Math.round(height);
+  }
+
   const durationSeconds = toNumber(item.durationSeconds, 0);
   if (durationSeconds > 0) {
     normalized.durationSeconds = durationSeconds;

@@ -151,7 +151,7 @@ export function useUserListings(userId?: string) {
         try {
           mediaItems =
             files.length > 0
-              ? await uploadListingFiles(supabase, userId, listingId, files)
+              ? await uploadListingFiles(supabase, userId, listingId, files, listing.mediaItems)
               : listing.mediaItems;
         } catch (error) {
           await supabase.from("listings").delete().eq("id", listingId).eq("owner_id", userId);
@@ -368,7 +368,8 @@ async function uploadListingFiles(
   supabase: SupabaseBrowserClient,
   userId: string,
   listingId: string,
-  files: File[]
+  files: File[],
+  sourceMediaItems: ListingMediaItem[] = []
 ): Promise<ListingMediaItem[]> {
   const uploaded: ListingMediaItem[] = [];
 
@@ -396,12 +397,20 @@ async function uploadListingFiles(
       data: { publicUrl }
     } = supabase.storage.from(listingMediaBucket).getPublicUrl(storagePath);
 
+    const sourceMedia = sourceMediaItems[index];
+    const fileMetadata =
+      sourceMedia?.width && sourceMedia.height && (!file.type.startsWith("video/") || sourceMedia.durationSeconds)
+        ? {}
+        : await readFileMediaMetadata(file);
+
     uploaded.push({
       url: publicUrl,
       type: file.type.startsWith("video/") ? "video" : "image",
       label: file.type.startsWith("video/") ? "Walkaround video" : `Photo ${index + 1}`,
+      width: sourceMedia?.width ?? fileMetadata.width,
+      height: sourceMedia?.height ?? fileMetadata.height,
       durationSeconds: file.type.startsWith("video/")
-        ? await getVideoDurationSeconds(file)
+        ? sourceMedia?.durationSeconds ?? fileMetadata.durationSeconds
         : undefined
     });
   }
@@ -541,9 +550,29 @@ function getStorageContentType(file: File) {
   return mimeType;
 }
 
-async function getVideoDurationSeconds(file: File) {
+async function readFileMediaMetadata(file: File): Promise<{
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+}> {
+  if (file.type.startsWith("video/")) {
+    return readVideoFileMetadata(file);
+  }
+
+  if (file.type.startsWith("image/")) {
+    return readImageDimensions(file);
+  }
+
+  return {};
+}
+
+async function readVideoFileMetadata(file: File): Promise<{
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+}> {
   if (typeof document === "undefined" || !file.type.startsWith("video/")) {
-    return undefined;
+    return {};
   }
 
   const video = document.createElement("video");
@@ -558,14 +587,45 @@ async function getVideoDurationSeconds(file: File) {
       video.onerror = () => reject(new Error("Could not read video duration."));
     });
 
-    return Number.isFinite(video.duration) && video.duration > 0
-      ? Math.round(video.duration)
-      : undefined;
+    return {
+      width: video.videoWidth > 0 ? video.videoWidth : undefined,
+      height: video.videoHeight > 0 ? video.videoHeight : undefined,
+      durationSeconds:
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.round(video.duration)
+          : undefined
+    };
   } catch {
-    return undefined;
+    return {};
   } finally {
     video.removeAttribute("src");
     video.load();
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function readImageDimensions(file: File): Promise<{ width?: number; height?: number }> {
+  if (typeof document === "undefined" || !file.type.startsWith("image/")) {
+    return {};
+  }
+
+  const image = new Image();
+  const url = URL.createObjectURL(file);
+
+  try {
+    image.src = url;
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Could not read image dimensions."));
+    });
+
+    return {
+      width: image.naturalWidth > 0 ? image.naturalWidth : undefined,
+      height: image.naturalHeight > 0 ? image.naturalHeight : undefined
+    };
+  } catch {
+    return {};
+  } finally {
     URL.revokeObjectURL(url);
   }
 }

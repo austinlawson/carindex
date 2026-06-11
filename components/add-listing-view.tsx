@@ -1379,29 +1379,48 @@ async function getListingMediaItems(
     if (firstVideoIndex < 0) {
       return [];
     }
+    const videoMetadata = await readVideoFileMetadata(files[firstVideoIndex]);
 
     return [
       {
         url: previewUrls[firstVideoIndex] ?? "/cars/sedan-night.svg",
         type: "video",
         label: "Walkaround video",
-        durationSeconds: await readVideoDurationSeconds(files[firstVideoIndex])
+        width: videoMetadata.width,
+        height: videoMetadata.height,
+        durationSeconds: videoMetadata.durationSeconds
       }
     ] satisfies ListingMediaItem[];
   }
 
   const imageFiles = files.filter((file) => file.type.startsWith("image/")).slice(0, maxImageUploads);
 
-  return imageFiles.map((file, index) => ({
-    url: previewUrls[index],
-    type: "image" as const,
-    label: `Photo ${index + 1}`
-  }));
+  return Promise.all(
+    imageFiles.map(async (file, index) => {
+      const dimensions = await readImageDimensions(file);
+
+      return {
+        url: previewUrls[index] ?? "/cars/sedan-night.svg",
+        type: "image" as const,
+        label: `Photo ${index + 1}`,
+        width: dimensions.width,
+        height: dimensions.height
+      };
+    })
+  );
 }
 
 async function readVideoDurationSeconds(file: File) {
+  return (await readVideoFileMetadata(file)).durationSeconds;
+}
+
+async function readVideoFileMetadata(file: File): Promise<{
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+}> {
   if (typeof document === "undefined" || !file.type.startsWith("video/")) {
-    return undefined;
+    return {};
   }
 
   const video = document.createElement("video");
@@ -1414,15 +1433,43 @@ async function readVideoDurationSeconds(file: File) {
     video.preload = "metadata";
     await waitForVideoMetadata(video);
 
-    return Number.isFinite(video.duration) && video.duration > 0
-      ? Math.round(video.duration)
-      : undefined;
+    return {
+      width: video.videoWidth > 0 ? video.videoWidth : undefined,
+      height: video.videoHeight > 0 ? video.videoHeight : undefined,
+      durationSeconds:
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.round(video.duration)
+          : undefined
+    };
   } catch {
-    return undefined;
+    return {};
   } finally {
     video.removeAttribute("src");
     video.load();
     URL.revokeObjectURL(sourceUrl);
+  }
+}
+
+async function readImageDimensions(file: File): Promise<{ width?: number; height?: number }> {
+  if (typeof document === "undefined" || !file.type.startsWith("image/")) {
+    return {};
+  }
+
+  const imageUrl = URL.createObjectURL(file);
+  const image = new Image();
+
+  try {
+    image.src = imageUrl;
+    await waitForImageLoad(image);
+
+    return {
+      width: image.naturalWidth > 0 ? image.naturalWidth : undefined,
+      height: image.naturalHeight > 0 ? image.naturalHeight : undefined
+    };
+  } catch {
+    return {};
+  } finally {
+    URL.revokeObjectURL(imageUrl);
   }
 }
 

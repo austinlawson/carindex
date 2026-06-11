@@ -63,9 +63,15 @@ export function MediaReel({
   const [isMuted, setIsMuted] = useState(readVideoMutedPreference);
   const [audioSessionUnlocked, setAudioSessionUnlocked] = useState(isAudioSessionUnlocked);
   const [videoPlaybackWasBlocked, setVideoPlaybackWasBlocked] = useState(false);
+  const [measuredDimensionsByUrl, setMeasuredDimensionsByUrl] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
   const safeActiveIndex = activeIndex % Math.max(frames.length, 1);
   const activeMedia = hasMedia ? frames[safeActiveIndex] : undefined;
   const activeMediaIsVideo = activeMedia?.type === "video";
+  const activeMediaDimensions = resolveMediaDimensions(activeMedia, measuredDimensionsByUrl);
+  const sellerMediaFit = getSellerMediaFit(activeMediaDimensions);
+  const sellerObjectFitClass = sellerMediaFit === "cover" ? "object-cover" : "object-contain";
   const shouldAttachVideoSource = isActive || preloadMode !== "none";
   const effectiveVideoPreload: MediaPreloadMode =
     isActive || preloadMode === "auto" ? "auto" : preloadMode;
@@ -422,6 +428,22 @@ export function MediaReel({
     }
   };
 
+  const rememberMediaDimensions = useCallback((url: string | undefined, width: number, height: number) => {
+    if (!url || width <= 0 || height <= 0) return;
+
+    setMeasuredDimensionsByUrl((current) => {
+      const existing = current[url];
+      if (existing?.width === width && existing.height === height) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [url]: { width, height }
+      };
+    });
+  }, []);
+
   const activeCaption = captions[safeActiveIndex % Math.max(captions.length, 1)] ?? captions[0];
   const showVideoTime = activeMediaIsVideo && (isVideoPaused || videoControlsVisible || isScrubbing);
   const videoSoundNeedsGesture = videoPlaybackWasBlocked && !isMuted;
@@ -505,7 +527,9 @@ export function MediaReel({
           <video
             ref={videoRef}
             src={shouldAttachVideoSource ? activeMedia.url : undefined}
-            className={`absolute inset-0 h-full w-full object-cover saturate-[1.08] ${
+            className={`absolute inset-0 h-full w-full ${
+              layout === "seller" ? sellerObjectFitClass : "object-cover"
+            } saturate-[1.08] ${
               chromeHidden ? "brightness-100" : "brightness-[0.74]"
             }`}
             muted={isMuted}
@@ -520,6 +544,7 @@ export function MediaReel({
             onLoadedMetadata={(event) => {
               const video = event.currentTarget;
               const duration = Number.isFinite(video.duration) ? video.duration : 0;
+              rememberMediaDimensions(activeMedia.url, video.videoWidth, video.videoHeight);
               setVideoDuration(duration);
               setVideoCurrentTime(video.currentTime);
               setVideoProgress(duration > 0 ? (video.currentTime / duration) * 100 : 0);
@@ -647,11 +672,18 @@ export function MediaReel({
                 alt=""
                 className={`h-full w-full ${
                   layout === "seller"
-                    ? `object-cover ${chromeHidden ? "brightness-100" : "brightness-[0.86]"}`
+                    ? `${sellerObjectFitClass} ${chromeHidden ? "brightness-100" : "brightness-[0.86]"}`
                     : "object-contain"
                 } ${chromeHidden ? "" : "drop-shadow-[0_28px_48px_rgba(0,0,0,0.74)]"} ${
                   isActive ? "animate-hero-float" : ""
                 }`}
+                onLoad={(event) => {
+                  rememberMediaDimensions(
+                    activeMedia.url,
+                    event.currentTarget.naturalWidth,
+                    event.currentTarget.naturalHeight
+                  );
+                }}
               />
             </div>
           </div>
@@ -706,6 +738,29 @@ function formatVideoTime(seconds: number) {
   const remainder = roundedSeconds % 60;
 
   return `${minutes}:${remainder.toString().padStart(2, "0")}`;
+}
+
+function resolveMediaDimensions(
+  media: ListingMediaItem | undefined,
+  measuredDimensionsByUrl: Record<string, { width: number; height: number }>
+) {
+  if (!media) return undefined;
+
+  const measuredDimensions = measuredDimensionsByUrl[media.url];
+  const width = media.width ?? measuredDimensions?.width;
+  const height = media.height ?? measuredDimensions?.height;
+
+  return width && height ? { width, height } : undefined;
+}
+
+function getSellerMediaFit(dimensions: { width: number; height: number } | undefined) {
+  if (!dimensions) {
+    return "contain";
+  }
+
+  const aspectRatio = dimensions.width / dimensions.height;
+
+  return aspectRatio <= 0.68 ? "cover" : "contain";
 }
 
 function VideoLoadingOverlay() {
