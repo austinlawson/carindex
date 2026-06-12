@@ -39,10 +39,13 @@ Option 1: create `.env.local` in the project root:
 ```env
 MARKETCHECK_API_KEY=your_key_here
 MARKETCHECK_ZIP=36360
-MARKETCHECK_TARGET_COUNT=50
+MARKETCHECK_TARGET_COUNT=80
 MARKETCHECK_PRIMARY_RADIUS=100
 MARKETCHECK_SECONDARY_RADIUS=100
-MARKETCHECK_MAX_CALLS_PER_RUN=3
+MARKETCHECK_MAX_CALLS_PER_RUN=8
+MARKETCHECK_STALE_VERIFY_MAX_CALLS_PER_RUN=2
+MARKETCHECK_STALE_VERIFY_BATCH_SIZE=20
+MARKETCHECK_REQUEST_DELAY_MS=1000
 MARKETCHECK_MONTHLY_CALL_LIMIT=500
 MARKETCHECK_MONTHLY_SAFETY_BUFFER=50
 ```
@@ -77,6 +80,9 @@ Useful optional environment variables:
 - `MARKETCHECK_CAR_TYPE`
 - `MARKETCHECK_FORCE_REFRESH`
 - `MARKETCHECK_MAX_CALLS_PER_RUN`
+- `MARKETCHECK_STALE_VERIFY_MAX_CALLS_PER_RUN`
+- `MARKETCHECK_STALE_VERIFY_BATCH_SIZE`
+- `MARKETCHECK_REQUEST_DELAY_MS`
 - `MARKETCHECK_MONTHLY_CALL_LIMIT`
 - `MARKETCHECK_MONTHLY_SAFETY_BUFFER`
 
@@ -101,23 +107,27 @@ It is built for the free MarketCheck plan:
 
 - Paginates through MarketCheck results until `MARKETCHECK_TARGET_COUNT`, `MARKETCHECK_MAX_CALLS_PER_RUN`, or the monthly safety limit is reached.
 - The API may return 10 listings per page even when `rows=500` is requested, so `start` is advanced by the actual page size returned.
+- Existing MarketCheck listings not found during discovery are verified by VIN batches before archival.
 - Returned listings are upserted into Supabase.
 - Returned provider IDs are marked with `last_seen_at`.
 - MarketCheck listings not seen again are archived after `MARKETCHECK_STALE_GRACE_HOURS` only when the sync fetched the complete result set.
 - User-uploaded listings are never touched by this sync.
 - Stale listings are archived, not hard-deleted, so a provider outage does not permanently wipe inventory.
 
-Vercel cron runs the endpoint daily at `09:00 UTC` through `vercel.json`. With `MARKETCHECK_MAX_CALLS_PER_RUN=3`, daily sync uses up to about 93 calls in a 31-day month, leaving most of a 500-call MarketCheck plan untouched.
+Vercel cron runs the endpoint daily at `09:00 UTC` through `vercel.json`. With `MARKETCHECK_MAX_CALLS_PER_RUN=8` and `MARKETCHECK_STALE_VERIFY_MAX_CALLS_PER_RUN=2`, daily sync uses up to about 310 calls in a 31-day month, staying under the default 450-call usable ceiling from `MARKETCHECK_MONTHLY_CALL_LIMIT=500` and `MARKETCHECK_MONTHLY_SAFETY_BUFFER=50`. `MARKETCHECK_REQUEST_DELAY_MS=1000` keeps calls from hitting MarketCheck's burst limit.
 
 Required production environment variables:
 
 ```env
 MARKETCHECK_API_KEY=your_key_here
 MARKETCHECK_ZIP=36360
-MARKETCHECK_TARGET_COUNT=50
+MARKETCHECK_TARGET_COUNT=80
 MARKETCHECK_PRIMARY_RADIUS=100
 MARKETCHECK_ROWS=500
-MARKETCHECK_MAX_CALLS_PER_RUN=3
+MARKETCHECK_MAX_CALLS_PER_RUN=8
+MARKETCHECK_STALE_VERIFY_MAX_CALLS_PER_RUN=2
+MARKETCHECK_STALE_VERIFY_BATCH_SIZE=20
+MARKETCHECK_REQUEST_DELAY_MS=1000
 MARKETCHECK_STALE_GRACE_HOURS=72
 MARKETCHECK_MONTHLY_CALL_LIMIT=500
 MARKETCHECK_MONTHLY_SAFETY_BUFFER=50
