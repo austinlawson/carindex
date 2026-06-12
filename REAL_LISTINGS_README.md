@@ -151,6 +151,8 @@ It uses the official eBay Browse API, not scraping. The sync searches eBay Motor
 
 Vercel cron runs this endpoint daily at `09:20 UTC` through `vercel.json`, twenty minutes after the MarketCheck sync.
 
+The default eBay sync uses one token request plus up to ten 200-row Browse API pages. That keeps the daily cron run low-volume while scanning enough newly listed U.S. Motors inventory to find local rows within the 100-mile radius.
+
 Required production environment variables:
 
 ```env
@@ -159,11 +161,14 @@ EBAY_CLIENT_SECRET=your_ebay_cert_id
 EBAY_MARKETPLACE_ID=EBAY_US
 EBAY_CATEGORY_ID=6001
 EBAY_SORT=newlyListed
-EBAY_ROWS=50
+EBAY_ROWS=200
+EBAY_MAX_PAGES_PER_SYNC=10
 EBAY_BUYING_OPTIONS=FIXED_PRICE,AUCTION,BEST_OFFER
+EBAY_ITEM_LOCATION_COUNTRY=US
+EBAY_LOCAL_DISTANCE_ONLY=true
 EBAY_LOCAL_PICKUP_ONLY=false
 EBAY_PICKUP_ZIP=36360
-EBAY_PICKUP_RADIUS=250
+EBAY_PICKUP_RADIUS=100
 EBAY_MAX_MEDIA_PER_LISTING=12
 EBAY_STALE_GRACE_HOURS=72
 EBAY_ARCHIVE_MIN_SEEN_LISTINGS=5
@@ -177,7 +182,9 @@ CRON_SECRET=your_random_secret
 Optional filters:
 
 - `EBAY_QUERY`: keyword filter. Leave empty for broad category search.
-- `EBAY_LOCAL_PICKUP_ONLY=true`: narrows to local-pickup items near `EBAY_PICKUP_ZIP`.
+- `EBAY_ITEM_LOCATION_COUNTRY=US`: keeps broad non-pickup searches to U.S.-located listings.
+- `EBAY_LOCAL_DISTANCE_ONLY=true`: imports only rows where eBay returns a distance within `EBAY_PICKUP_RADIUS`. This is separate from local-pickup eligibility.
+- `EBAY_LOCAL_PICKUP_ONLY=true`: narrows to listings that explicitly offer local pickup near `EBAY_PICKUP_ZIP`. Leave this false to avoid excluding sellers who may still allow pickup but did not mark the eBay listing that way.
 - `EBAY_SORT=endingSoonest`: useful for auction-heavy tests.
 
 Manual dry run:

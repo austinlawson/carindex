@@ -30,7 +30,10 @@ type EbaySyncConfig = {
   sort: string;
   limit: number;
   offset: number;
+  maxPagesPerSync: number;
   buyingOptions: string[];
+  itemLocationCountry?: string;
+  localDistanceOnly: boolean;
   localPickupOnly: boolean;
   pickupZip: string;
   pickupRadius: number;
@@ -59,6 +62,7 @@ export type EbaySyncResult = {
   monthlyCallsUsedBeforeRun: number;
   monthlyUsableCallLimit: number;
   rowsFetched: number;
+  listingsOutsideRadius: number;
   listingsNormalized: number;
   listingsSkipped: number;
   listingsUpserted: number;
@@ -75,6 +79,9 @@ export type EbaySyncResult = {
     query?: string;
     sort: string;
     limit: number;
+    maxPagesPerSync: number;
+    itemLocationCountry?: string;
+    localDistanceOnly: boolean;
     localPickupOnly: boolean;
     pickupZip: string;
     pickupRadius: number;
@@ -97,6 +104,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     monthlyCallsUsedBeforeRun: 0,
     monthlyUsableCallLimit: getMonthlyUsableCallLimit(config),
     rowsFetched: 0,
+    listingsOutsideRadius: 0,
     listingsNormalized: 0,
     listingsSkipped: 0,
     listingsUpserted: 0,
@@ -112,6 +120,9 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       query: config.query,
       sort: config.sort,
       limit: config.limit,
+      maxPagesPerSync: config.maxPagesPerSync,
+      itemLocationCountry: config.itemLocationCountry,
+      localDistanceOnly: config.localDistanceOnly,
       localPickupOnly: config.localPickupOnly,
       pickupZip: config.pickupZip,
       pickupRadius: config.pickupRadius,
@@ -164,12 +175,13 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     const token = config.accessToken ?? (await fetchEbayAccessToken(config));
     if (!config.accessToken) callsAttempted += 1;
 
-    const payload = await fetchEbaySearchPayload(config, token);
-    callsAttempted += 1;
+    const searchResult = await fetchEbaySearchPayloads(config, token);
+    callsAttempted += searchResult.callsUsed;
 
-    const rawRows = extractItemSummaries(payload);
+    const rawRows = searchResult.rows;
     const nowIso = new Date().toISOString();
-    const normalized = normalizeEbayRows(rawRows, config, nowIso);
+    const normalizedResult = normalizeEbayRows(rawRows, config, nowIso);
+    const normalized = normalizedResult.listings;
     const existingRows = await fetchExistingListingRows(
       supabase,
       normalized.map((item) => item.listing.id)
@@ -196,6 +208,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       message: "eBay sync completed.",
       callsUsed: callsAttempted,
       rowsFetched: rawRows.length,
+      listingsOutsideRadius: normalizedResult.outsideRadius,
       listingsNormalized: prepared.length,
       listingsSkipped: Math.max(0, rawRows.length - prepared.length),
       listingsUpserted: writeStats.listingsUpserted,
@@ -227,6 +240,9 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
         query: config.query,
         sort: config.sort,
         limit: config.limit,
+        maxPagesPerSync: config.maxPagesPerSync,
+        itemLocationCountry: config.itemLocationCountry,
+        localDistanceOnly: config.localDistanceOnly,
         archiveSkippedReason: result.archiveSkippedReason,
         warnings
       })
@@ -256,6 +272,9 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
         query: config.query,
         sort: config.sort,
         limit: config.limit,
+        maxPagesPerSync: config.maxPagesPerSync,
+        itemLocationCountry: config.itemLocationCountry,
+        localDistanceOnly: config.localDistanceOnly,
         warnings
       })
     });
@@ -272,6 +291,10 @@ function finishResult(result: Omit<EbaySyncResult, "finishedAt">): EbaySyncResul
 }
 
 function readEbaySyncConfig(): EbaySyncConfig {
+  const limit = clamp(readPositiveIntEnv("EBAY_ROWS", 200), 1, 200);
+  const marketCheckRadius = clamp(readPositiveIntEnv("MARKETCHECK_PRIMARY_RADIUS", 100), 1, 100);
+  const pickupRadius = clamp(readPositiveIntEnv("EBAY_PICKUP_RADIUS", marketCheckRadius), 1, 500);
+
   return {
     accessToken: cleanOptional(process.env.EBAY_ACCESS_TOKEN),
     clientId: cleanOptional(process.env.EBAY_CLIENT_ID),
@@ -283,12 +306,15 @@ function readEbaySyncConfig(): EbaySyncConfig {
     categoryId: process.env.EBAY_CATEGORY_ID ?? "6001",
     query: cleanOptional(process.env.EBAY_QUERY),
     sort: process.env.EBAY_SORT ?? "newlyListed",
-    limit: clamp(readIntEnv("EBAY_ROWS", 50), 1, 200),
-    offset: clamp(readIntEnv("EBAY_OFFSET", 0), 0, 9999),
+    limit,
+    offset: normalizeEbayOffset(readIntEnv("EBAY_OFFSET", 0), limit),
+    maxPagesPerSync: clamp(readPositiveIntEnv("EBAY_MAX_PAGES_PER_SYNC", 10), 1, 10),
     buyingOptions: readListEnv("EBAY_BUYING_OPTIONS", ["FIXED_PRICE", "AUCTION", "BEST_OFFER"]),
+    itemLocationCountry: cleanOptional(process.env.EBAY_ITEM_LOCATION_COUNTRY ?? "US"),
+    localDistanceOnly: parseBoolean(process.env.EBAY_LOCAL_DISTANCE_ONLY, true),
     localPickupOnly: parseBoolean(process.env.EBAY_LOCAL_PICKUP_ONLY, false),
     pickupZip: process.env.EBAY_PICKUP_ZIP ?? process.env.MARKETCHECK_ZIP ?? "36360",
-    pickupRadius: clamp(readIntEnv("EBAY_PICKUP_RADIUS", 250), 1, 500),
+    pickupRadius,
     maxMediaPerListing: clamp(readIntEnv("EBAY_MAX_MEDIA_PER_LISTING", 12), 1, 60),
     staleGraceHours: clamp(readIntEnv("EBAY_STALE_GRACE_HOURS", 72), 1, 720),
     archiveMinSeenListings: clamp(readIntEnv("EBAY_ARCHIVE_MIN_SEEN_LISTINGS", 5), 0, 200),
@@ -334,8 +360,28 @@ async function fetchEbayAccessToken(config: EbaySyncConfig) {
   return token;
 }
 
-async function fetchEbaySearchPayload(config: EbaySyncConfig, accessToken: string) {
-  const url = buildEbaySearchUrl(config);
+async function fetchEbaySearchPayloads(config: EbaySyncConfig, accessToken: string) {
+  const rows: EbayRow[] = [];
+  let callsUsed = 0;
+
+  for (let page = 0; page < config.maxPagesPerSync; page += 1) {
+    const offset = config.offset + page * config.limit;
+    if (offset > 9999) break;
+
+    const payload = await fetchEbaySearchPayload(config, accessToken, offset);
+    callsUsed += 1;
+
+    const pageRows = extractItemSummaries(payload);
+    rows.push(...pageRows);
+
+    if (pageRows.length < config.limit) break;
+  }
+
+  return { rows, callsUsed };
+}
+
+async function fetchEbaySearchPayload(config: EbaySyncConfig, accessToken: string, offset: number) {
+  const url = buildEbaySearchUrl(config, offset);
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
@@ -352,14 +398,14 @@ async function fetchEbaySearchPayload(config: EbaySyncConfig, accessToken: strin
   return (await response.json()) as Record<string, unknown>;
 }
 
-function buildEbaySearchUrl(config: EbaySyncConfig) {
+function buildEbaySearchUrl(config: EbaySyncConfig, offset = config.offset) {
   const url = new URL(config.searchUrl);
   if (config.query) url.searchParams.set("q", config.query);
   url.searchParams.set("category_ids", config.categoryId);
   url.searchParams.set("fieldgroups", "EXTENDED");
   url.searchParams.set("sort", config.sort);
   url.searchParams.set("limit", String(config.limit));
-  url.searchParams.set("offset", String(config.offset));
+  url.searchParams.set("offset", String(offset));
 
   const filters: string[] = [];
   if (config.buyingOptions.length > 0) {
@@ -371,6 +417,8 @@ function buildEbaySearchUrl(config: EbaySyncConfig) {
     filters.push(`pickupPostalCode:${config.pickupZip}`);
     filters.push(`pickupRadius:${config.pickupRadius}`);
     filters.push("pickupRadiusUnit:mi");
+  } else if (config.itemLocationCountry) {
+    filters.push(`itemLocationCountry:${config.itemLocationCountry}`);
   }
   if (filters.length > 0) {
     url.searchParams.set("filter", filters.join(","));
@@ -381,8 +429,14 @@ function buildEbaySearchUrl(config: EbaySyncConfig) {
 
 function normalizeEbayRows(rows: EbayRow[], config: EbaySyncConfig, nowIso: string) {
   const byListingId = new Map<string, NormalizedEbayListing>();
+  let outsideRadius = 0;
 
   for (const row of rows) {
+    if (!isWithinConfiguredLocalRadius(row, config)) {
+      outsideRadius += 1;
+      continue;
+    }
+
     const listing = normalizeEbayListing(row, config, nowIso);
     if (!isUsableEbayListing(listing)) {
       continue;
@@ -405,7 +459,10 @@ function normalizeEbayRows(rows: EbayRow[], config: EbaySyncConfig, nowIso: stri
     }
   }
 
-  return [...byListingId.values()];
+  return {
+    listings: [...byListingId.values()],
+    outsideRadius
+  };
 }
 
 function normalizeEbayListing(row: EbayRow, config: EbaySyncConfig, nowIso: string) {
@@ -601,6 +658,13 @@ async function archiveStaleEbayListings({
     };
   }
 
+  if (config.localDistanceOnly) {
+    return {
+      archived: 0,
+      skippedReason: "Archiving skipped because this eBay sync is limited to local-distance inventory."
+    };
+  }
+
   if (fetchedListingCount < config.archiveMinSeenListings) {
     return {
       archived: 0,
@@ -704,6 +768,12 @@ function isUsableEbayListing(listing: CarListing) {
       listing.contactUrl &&
       listing.mediaItems.some((media) => media.url && !media.url.startsWith("/cars/"))
   );
+}
+
+function isWithinConfiguredLocalRadius(row: EbayRow, config: EbaySyncConfig) {
+  if (!config.localDistanceOnly) return true;
+  const distance = getDistance(row);
+  return distance !== undefined && distance <= config.pickupRadius;
 }
 
 function scoreEbayListing(listing: CarListing) {
@@ -890,7 +960,7 @@ function getMoneyValue(value: Record<string, unknown> | undefined) {
 
 function getDistance(row: EbayRow) {
   const distance = getObject(row, "distanceFromPickupLocation");
-  return getNumber(distance, "value") ?? 0;
+  return getNumber(distance, "value");
 }
 
 function buildAiHook(
@@ -1037,6 +1107,11 @@ function readIntEnv(name: string, fallback: number) {
   return Number.isFinite(value) && value >= 0 ? Math.round(value) : fallback;
 }
 
+function readPositiveIntEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback;
+}
+
 function readListEnv(name: string, fallback: string[]) {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -1054,6 +1129,11 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeEbayOffset(value: number, limit: number) {
+  const offset = clamp(value, 0, 9999);
+  return offset - (offset % limit);
 }
 
 function cleanOptional(value: unknown) {
