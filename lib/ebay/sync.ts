@@ -31,6 +31,7 @@ type EbaySyncConfig = {
   limit: number;
   offset: number;
   maxPagesPerSync: number;
+  localPickupMaxPagesPerSync: number;
   buyingOptions: string[];
   itemLocationCountry?: string;
   localDistanceOnly: boolean;
@@ -52,6 +53,20 @@ type NormalizedEbayListing = {
   sourceListingId: string;
 };
 
+type EbaySearchPassStats = {
+  name: string;
+  sort: string;
+  localPickupOnly: boolean;
+  maxPagesPerSync: number;
+  callsUsed: number;
+  rowsFetched: number;
+};
+
+type EbaySearchPlan = {
+  name: string;
+  config: EbaySyncConfig;
+};
+
 export type EbaySyncResult = {
   ok: boolean;
   dryRun: boolean;
@@ -62,6 +77,7 @@ export type EbaySyncResult = {
   monthlyCallsUsedBeforeRun: number;
   monthlyUsableCallLimit: number;
   rowsFetched: number;
+  uniqueRowsFetched: number;
   listingsOutsideRadius: number;
   listingsNormalized: number;
   listingsSkipped: number;
@@ -73,6 +89,7 @@ export type EbaySyncResult = {
   listingsArchived: number;
   archiveSkippedReason?: string;
   warnings: string[];
+  searchPasses: EbaySearchPassStats[];
   config: {
     marketplaceId: string;
     categoryId: string;
@@ -80,6 +97,7 @@ export type EbaySyncResult = {
     sort: string;
     limit: number;
     maxPagesPerSync: number;
+    localPickupMaxPagesPerSync: number;
     itemLocationCountry?: string;
     localDistanceOnly: boolean;
     localPickupOnly: boolean;
@@ -104,6 +122,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     monthlyCallsUsedBeforeRun: 0,
     monthlyUsableCallLimit: getMonthlyUsableCallLimit(config),
     rowsFetched: 0,
+    uniqueRowsFetched: 0,
     listingsOutsideRadius: 0,
     listingsNormalized: 0,
     listingsSkipped: 0,
@@ -114,6 +133,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     importRowsUpserted: 0,
     listingsArchived: 0,
     warnings,
+    searchPasses: [],
     config: {
       marketplaceId: config.marketplaceId,
       categoryId: config.categoryId,
@@ -121,6 +141,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       sort: config.sort,
       limit: config.limit,
       maxPagesPerSync: config.maxPagesPerSync,
+      localPickupMaxPagesPerSync: config.localPickupMaxPagesPerSync,
       itemLocationCountry: config.itemLocationCountry,
       localDistanceOnly: config.localDistanceOnly,
       localPickupOnly: config.localPickupOnly,
@@ -207,7 +228,8 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       ok: true,
       message: "eBay sync completed.",
       callsUsed: callsAttempted,
-      rowsFetched: rawRows.length,
+      rowsFetched: searchResult.rowsFetched,
+      uniqueRowsFetched: rawRows.length,
       listingsOutsideRadius: normalizedResult.outsideRadius,
       listingsNormalized: prepared.length,
       listingsSkipped: Math.max(0, rawRows.length - prepared.length),
@@ -220,7 +242,8 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       mediaRowsInserted: writeStats.mediaRowsInserted,
       importRowsUpserted: writeStats.importRowsUpserted,
       listingsArchived: archiveStats.archived,
-      archiveSkippedReason: archiveStats.skippedReason
+      archiveSkippedReason: archiveStats.skippedReason,
+      searchPasses: searchResult.searchPasses
     });
 
     await recordSyncRun(supabase, {
@@ -241,8 +264,10 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
         sort: config.sort,
         limit: config.limit,
         maxPagesPerSync: config.maxPagesPerSync,
+        localPickupMaxPagesPerSync: config.localPickupMaxPagesPerSync,
         itemLocationCountry: config.itemLocationCountry,
         localDistanceOnly: config.localDistanceOnly,
+        searchPasses: result.searchPasses,
         archiveSkippedReason: result.archiveSkippedReason,
         warnings
       })
@@ -273,6 +298,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
         sort: config.sort,
         limit: config.limit,
         maxPagesPerSync: config.maxPagesPerSync,
+        localPickupMaxPagesPerSync: config.localPickupMaxPagesPerSync,
         itemLocationCountry: config.itemLocationCountry,
         localDistanceOnly: config.localDistanceOnly,
         warnings
@@ -309,7 +335,19 @@ function readEbaySyncConfig(): EbaySyncConfig {
     limit,
     offset: normalizeEbayOffset(readIntEnv("EBAY_OFFSET", 0), limit),
     maxPagesPerSync: clamp(readPositiveIntEnv("EBAY_MAX_PAGES_PER_SYNC", 10), 1, 10),
-    buyingOptions: readListEnv("EBAY_BUYING_OPTIONS", ["FIXED_PRICE", "AUCTION", "BEST_OFFER"]),
+    localPickupMaxPagesPerSync: clamp(
+      readPositiveIntEnv("EBAY_LOCAL_PICKUP_MAX_PAGES_PER_SYNC", 2),
+      1,
+      10
+    ),
+    buyingOptions: normalizeBuyingOptions(
+      readListEnv("EBAY_BUYING_OPTIONS", [
+        "FIXED_PRICE",
+        "AUCTION",
+        "BEST_OFFER",
+        "CLASSIFIED_AD"
+      ])
+    ),
     itemLocationCountry: cleanOptional(process.env.EBAY_ITEM_LOCATION_COUNTRY ?? "US"),
     localDistanceOnly: parseBoolean(process.env.EBAY_LOCAL_DISTANCE_ONLY, true),
     localPickupOnly: parseBoolean(process.env.EBAY_LOCAL_PICKUP_ONLY, false),
@@ -361,6 +399,36 @@ async function fetchEbayAccessToken(config: EbaySyncConfig) {
 }
 
 async function fetchEbaySearchPayloads(config: EbaySyncConfig, accessToken: string) {
+  const rowsById = new Map<string, EbayRow>();
+  const searchPasses: EbaySearchPassStats[] = [];
+  let rowsFetched = 0;
+  let callsUsed = 0;
+
+  for (const plan of buildEbaySearchPlans(config)) {
+    const passResult = await fetchEbaySearchPass(plan.config, accessToken);
+    rowsFetched += passResult.rows.length;
+    callsUsed += passResult.callsUsed;
+    searchPasses.push({
+      name: plan.name,
+      sort: plan.config.sort,
+      localPickupOnly: plan.config.localPickupOnly,
+      maxPagesPerSync: plan.config.maxPagesPerSync,
+      callsUsed: passResult.callsUsed,
+      rowsFetched: passResult.rows.length
+    });
+
+    for (const row of passResult.rows) {
+      const rowId = getEbayRowId(row) ?? `row:${rowsById.size}`;
+      if (!rowsById.has(rowId)) {
+        rowsById.set(rowId, row);
+      }
+    }
+  }
+
+  return { rows: [...rowsById.values()], rowsFetched, callsUsed, searchPasses };
+}
+
+async function fetchEbaySearchPass(config: EbaySyncConfig, accessToken: string) {
   const rows: EbayRow[] = [];
   let callsUsed = 0;
 
@@ -378,6 +446,30 @@ async function fetchEbaySearchPayloads(config: EbaySyncConfig, accessToken: stri
   }
 
   return { rows, callsUsed };
+}
+
+function buildEbaySearchPlans(config: EbaySyncConfig): EbaySearchPlan[] {
+  if (!config.localDistanceOnly || config.localPickupOnly) {
+    return [{ name: "configured", config }];
+  }
+
+  return [
+    {
+      name: "local-pickup-distance",
+      config: {
+        ...config,
+        sort: "distance",
+        offset: 0,
+        maxPagesPerSync: config.localPickupMaxPagesPerSync,
+        itemLocationCountry: undefined,
+        localPickupOnly: true
+      }
+    },
+    {
+      name: "fresh-local-distance",
+      config
+    }
+  ];
 }
 
 async function fetchEbaySearchPayload(config: EbaySyncConfig, accessToken: string, offset: number) {
@@ -792,6 +884,10 @@ function extractItemSummaries(payload: Record<string, unknown>) {
   return Array.isArray(payload.itemSummaries) ? payload.itemSummaries.filter(isRecord) : [];
 }
 
+function getEbayRowId(row: EbayRow) {
+  return getString(row, "itemId") ?? getString(row, "legacyItemId") ?? getString(row, "itemWebUrl");
+}
+
 function extractImageUrls(row: EbayRow) {
   const urls = [
     getString(getObject(row, "image"), "imageUrl"),
@@ -1120,6 +1216,17 @@ function readListEnv(name: string, fallback: string[]) {
     .map((item) => item.trim().toUpperCase())
     .filter(Boolean);
   return items.length > 0 ? items : fallback;
+}
+
+function normalizeBuyingOptions(options: string[]) {
+  const normalized = [...new Set(options.map((option) => option.trim().toUpperCase()).filter(Boolean))];
+  if (
+    parseBoolean(process.env.EBAY_INCLUDE_CLASSIFIED_ADS, true) &&
+    !normalized.includes("CLASSIFIED_AD")
+  ) {
+    normalized.push("CLASSIFIED_AD");
+  }
+  return normalized;
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean) {

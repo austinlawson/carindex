@@ -151,7 +151,7 @@ It uses the official eBay Browse API, not scraping. The sync searches eBay Motor
 
 Vercel cron runs this endpoint daily at `09:20 UTC` through `vercel.json`, twenty minutes after the MarketCheck sync.
 
-The default eBay sync uses one token request plus up to ten 200-row Browse API pages. That keeps the daily cron run low-volume while scanning enough newly listed U.S. Motors inventory to find local rows within the 100-mile radius.
+The default eBay sync uses one token request, a distance-sorted local pickup radius pass for active local coverage, and up to ten 200-row broad Browse API pages for newly listed local discoveries. That keeps the daily cron run low-volume while avoiding the false assumption that the newest nationwide eBay Motors rows represent the local market.
 
 Required production environment variables:
 
@@ -163,7 +163,9 @@ EBAY_CATEGORY_ID=6001
 EBAY_SORT=newlyListed
 EBAY_ROWS=200
 EBAY_MAX_PAGES_PER_SYNC=10
-EBAY_BUYING_OPTIONS=FIXED_PRICE,AUCTION,BEST_OFFER
+EBAY_LOCAL_PICKUP_MAX_PAGES_PER_SYNC=2
+EBAY_BUYING_OPTIONS=FIXED_PRICE,AUCTION,BEST_OFFER,CLASSIFIED_AD
+EBAY_INCLUDE_CLASSIFIED_ADS=true
 EBAY_ITEM_LOCATION_COUNTRY=US
 EBAY_LOCAL_DISTANCE_ONLY=true
 EBAY_LOCAL_PICKUP_ONLY=false
@@ -183,7 +185,9 @@ Optional filters:
 
 - `EBAY_QUERY`: keyword filter. Leave empty for broad category search.
 - `EBAY_ITEM_LOCATION_COUNTRY=US`: keeps broad non-pickup searches to U.S.-located listings.
+- `EBAY_INCLUDE_CLASSIFIED_ADS=true`: adds `CLASSIFIED_AD` to buying options, which matters for eBay Motors dealer listings.
 - `EBAY_LOCAL_DISTANCE_ONLY=true`: imports only rows where eBay returns a distance within `EBAY_PICKUP_RADIUS`. This is separate from local-pickup eligibility.
+- `EBAY_LOCAL_PICKUP_MAX_PAGES_PER_SYNC`: page cap for the distance-sorted local pickup pass.
 - `EBAY_LOCAL_PICKUP_ONLY=true`: narrows to listings that explicitly offer local pickup near `EBAY_PICKUP_ZIP`. Leave this false to avoid excluding sellers who may still allow pickup but did not mark the eBay listing that way.
 - `EBAY_SORT=endingSoonest`: useful for auction-heavy tests.
 
