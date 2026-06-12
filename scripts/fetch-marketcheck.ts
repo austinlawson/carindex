@@ -66,7 +66,7 @@ const config = {
   bodyType: process.env.MARKETCHECK_BODY_TYPE,
   carType: process.env.MARKETCHECK_CAR_TYPE ?? "used",
   forceRefresh: parseBoolean(process.env.MARKETCHECK_FORCE_REFRESH, false),
-  maxCallsPerRun: readIntEnv("MARKETCHECK_MAX_CALLS_PER_RUN", 4),
+  maxCallsPerRun: readIntEnv("MARKETCHECK_MAX_CALLS_PER_RUN", 3),
   monthlyCallLimit: readIntEnv("MARKETCHECK_MONTHLY_CALL_LIMIT", 500),
   monthlySafetyBuffer: readIntEnv("MARKETCHECK_MONTHLY_SAFETY_BUFFER", 50)
 };
@@ -159,36 +159,61 @@ async function fetchInventory(
   ledger: ApiCallLedgerEntry[],
   ledgerEntry: ApiCallLedgerEntry
 ) {
-  const url = buildMarketCheckUrl(radius);
-  const response = await fetch(url, {
-    headers: {
-      accept: "application/json"
+  const rows: Record<string, unknown>[] = [];
+  let start = 0;
+
+  while (rows.length < config.targetCount) {
+    const canCall = ensureCallBudget(ledgerEntry, stats.callsMade);
+    if (!canCall.ok) {
+      if (rows.length === 0) console.warn(canCall.reason);
+      break;
     }
-  });
 
-  stats.callsMade += 1;
-  ledgerEntry.callsUsed += 1;
-  ledgerEntry.lastCallAt = new Date().toISOString();
-  ledgerEntry.notes = `Last request radius=${radius}, rows=${config.rows}, zip=${config.zip}`;
-  saveJson(ledgerPath, ledger);
+    const url = buildMarketCheckUrl(radius, start);
+    const response = await fetch(url, {
+      headers: {
+        accept: "application/json"
+      }
+    });
 
-  if (!response.ok) {
-    const body = await response.text();
-    console.warn(`MarketCheck request failed (${response.status}) for radius ${radius}: ${body}`);
-    return [];
+    stats.callsMade += 1;
+    ledgerEntry.callsUsed += 1;
+    ledgerEntry.lastCallAt = new Date().toISOString();
+    ledgerEntry.notes = `Last request radius=${radius}, rows=${config.rows}, start=${start}, zip=${config.zip}`;
+    saveJson(ledgerPath, ledger);
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.warn(`MarketCheck request failed (${response.status}) for radius ${radius}: ${body}`);
+      break;
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const pageRows = extractListings(payload);
+    const totalFound = getMarketCheckTotalFound(payload);
+
+    if (pageRows.length === 0) {
+      break;
+    }
+
+    rows.push(...pageRows);
+    start += pageRows.length;
+
+    if (totalFound !== undefined && start >= totalFound) {
+      break;
+    }
   }
 
-  const payload = (await response.json()) as Record<string, unknown>;
-  return extractListings(payload);
+  return rows;
 }
 
-function buildMarketCheckUrl(radius: number) {
+function buildMarketCheckUrl(radius: number, start: number) {
   const url = new URL(config.baseUrl);
   url.searchParams.set("api_key", config.apiKey ?? "");
   url.searchParams.set("zip", config.zip);
   url.searchParams.set("radius", String(radius));
   url.searchParams.set("rows", String(config.rows));
-  url.searchParams.set("start", "0");
+  url.searchParams.set("start", String(start));
   url.searchParams.set("car_type", config.carType);
 
   if (config.make) url.searchParams.set("make", config.make);
@@ -467,6 +492,22 @@ function extractListings(payload: Record<string, unknown>) {
   }
 
   return [];
+}
+
+function getMarketCheckTotalFound(payload: Record<string, unknown>) {
+  const response = getObject(payload, "response");
+  return (
+    getNumber(payload, "num_found") ??
+    getNumber(payload, "numFound") ??
+    getNumber(payload, "total") ??
+    getNumber(payload, "total_count") ??
+    getNumber(payload, "totalCount") ??
+    getNumber(response, "num_found") ??
+    getNumber(response, "numFound") ??
+    getNumber(response, "total") ??
+    getNumber(response, "total_count") ??
+    getNumber(response, "totalCount")
+  );
 }
 
 function extractImageUrls(row: Record<string, unknown>, media: Record<string, unknown> | undefined) {

@@ -19,8 +19,10 @@ type MarketCheckSyncConfig = {
   apiKey?: string;
   baseUrl: string;
   zip: string;
+  targetCount: number;
   radius: number;
   rows: number;
+  maxCallsPerRun: number;
   carType: string;
   make?: string;
   bodyType?: string;
@@ -63,8 +65,10 @@ export type MarketCheckSyncResult = {
   warnings: string[];
   config: {
     zip: string;
+    targetCount: number;
     radius: number;
     rows: number;
+    maxCallsPerRun: number;
     carType: string;
     maxMediaPerListing: number;
     staleGraceHours: number;
@@ -96,8 +100,10 @@ export async function syncMarketCheckInventory(options: { dryRun?: boolean } = {
     warnings,
     config: {
       zip: config.zip,
+      targetCount: config.targetCount,
       radius: config.radius,
       rows: config.rows,
+      maxCallsPerRun: config.maxCallsPerRun,
       carType: config.carType,
       maxMediaPerListing: config.maxMediaPerListing,
       staleGraceHours: config.staleGraceHours
@@ -144,9 +150,12 @@ export async function syncMarketCheckInventory(options: { dryRun?: boolean } = {
   let callsAttempted = 0;
 
   try {
-    callsAttempted = 1;
-    const payload = await fetchMarketCheckPayload(config);
-    const rawRows = extractListings(payload);
+    const monthlyCallsRemaining = Math.max(0, getMonthlyUsableCallLimit(config) - monthlyUsage.callsUsed);
+    const maxCallsThisRun = Math.min(config.maxCallsPerRun, monthlyCallsRemaining);
+    const fetchResult = await fetchMarketCheckRows(config, maxCallsThisRun, () => {
+      callsAttempted += 1;
+    });
+    const rawRows = fetchResult.rows;
     const nowIso = new Date().toISOString();
     const normalized = normalizeMarketCheckRows(rawRows, config, nowIso);
     const existingRows = await fetchExistingListingRows(
@@ -160,20 +169,28 @@ export async function syncMarketCheckInventory(options: { dryRun?: boolean } = {
         importedAt: existingRows.get(item.listing.id)?.imported_at ?? item.listing.importedAt
       }
     }));
+    const shouldArchive =
+      fetchResult.resultSetComplete || (fetchResult.totalFound !== undefined && fetchResult.totalFound <= rawRows.length);
     const writeStats = await writeMarketCheckListings(supabase, prepared);
-    const archiveStats = await archiveStaleMarketCheckListings({
-      supabase,
-      seenListingIds: new Set(prepared.map((item) => item.listing.id)),
-      fetchedListingCount: prepared.length,
-      config,
-      now: new Date()
-    });
+    const archiveStats = shouldArchive
+      ? await archiveStaleMarketCheckListings({
+          supabase,
+          seenListingIds: new Set(prepared.map((item) => item.listing.id)),
+          fetchedListingCount: prepared.length,
+          config,
+          now: new Date()
+        })
+      : {
+          archived: 0,
+          skippedReason:
+            "Archiving skipped because this run fetched only part of the MarketCheck result set."
+        };
 
     const result = finishResult({
       ...baseResult,
       ok: true,
       message: "MarketCheck sync completed.",
-      callsUsed: 1,
+      callsUsed: fetchResult.callsUsed,
       rowsFetched: rawRows.length,
       listingsNormalized: prepared.length,
       listingsSkipped: Math.max(0, rawRows.length - prepared.length),
@@ -202,8 +219,13 @@ export async function syncMarketCheckInventory(options: { dryRun?: boolean } = {
       listings_reactivated: result.listingsReactivated,
       notes: toJson({
         zip: config.zip,
+        targetCount: config.targetCount,
         radius: config.radius,
         rows: config.rows,
+        maxCallsPerRun: config.maxCallsPerRun,
+        totalFound: fetchResult.totalFound,
+        nextStart: fetchResult.nextStart,
+        resultSetComplete: fetchResult.resultSetComplete,
         archiveSkippedReason: result.archiveSkippedReason,
         warnings
       })
@@ -229,8 +251,10 @@ export async function syncMarketCheckInventory(options: { dryRun?: boolean } = {
       error: message,
       notes: toJson({
         zip: config.zip,
+        targetCount: config.targetCount,
         radius: config.radius,
         rows: config.rows,
+        maxCallsPerRun: config.maxCallsPerRun,
         warnings
       })
     });
@@ -256,8 +280,10 @@ function readMarketCheckSyncConfig(): MarketCheckSyncConfig {
     apiKey: process.env.MARKETCHECK_API_KEY,
     baseUrl: process.env.MARKETCHECK_BASE_URL ?? defaultBaseUrl,
     zip: process.env.MARKETCHECK_ZIP ?? "36360",
+    targetCount: clamp(readIntEnv("MARKETCHECK_TARGET_COUNT", 50), 1, 500),
     radius,
     rows,
+    maxCallsPerRun: clamp(readIntEnv("MARKETCHECK_MAX_CALLS_PER_RUN", 3), 1, 50),
     carType: process.env.MARKETCHECK_CAR_TYPE ?? "used",
     make: cleanOptional(process.env.MARKETCHECK_MAKE),
     bodyType: cleanOptional(process.env.MARKETCHECK_BODY_TYPE),
@@ -271,8 +297,49 @@ function readMarketCheckSyncConfig(): MarketCheckSyncConfig {
   };
 }
 
-async function fetchMarketCheckPayload(config: MarketCheckSyncConfig) {
-  const url = buildMarketCheckUrl(config);
+async function fetchMarketCheckRows(
+  config: MarketCheckSyncConfig,
+  maxCalls: number,
+  onCallAttempt: () => void
+) {
+  const rows: MarketCheckRow[] = [];
+  let totalFound: number | undefined;
+  let nextStart = 0;
+  let callsUsed = 0;
+  let resultSetComplete = false;
+
+  while (callsUsed < maxCalls && rows.length < config.targetCount) {
+    onCallAttempt();
+    callsUsed += 1;
+    const payload = await fetchMarketCheckPayload(config, nextStart);
+    const pageRows = extractListings(payload);
+    totalFound = totalFound ?? getMarketCheckTotalFound(payload);
+
+    if (pageRows.length === 0) {
+      resultSetComplete = true;
+      break;
+    }
+
+    rows.push(...pageRows);
+    nextStart += pageRows.length;
+
+    if ((totalFound !== undefined && nextStart >= totalFound) || pageRows.length < 1) {
+      resultSetComplete = true;
+      break;
+    }
+  }
+
+  return {
+    rows,
+    callsUsed,
+    totalFound,
+    nextStart,
+    resultSetComplete
+  };
+}
+
+async function fetchMarketCheckPayload(config: MarketCheckSyncConfig, start: number) {
+  const url = buildMarketCheckUrl(config, start);
   const response = await fetch(url, {
     headers: {
       accept: "application/json"
@@ -286,13 +353,13 @@ async function fetchMarketCheckPayload(config: MarketCheckSyncConfig) {
   return (await response.json()) as Record<string, unknown>;
 }
 
-function buildMarketCheckUrl(config: MarketCheckSyncConfig) {
+function buildMarketCheckUrl(config: MarketCheckSyncConfig, start: number) {
   const url = new URL(config.baseUrl);
   url.searchParams.set("api_key", config.apiKey ?? "");
   url.searchParams.set("zip", config.zip);
   url.searchParams.set("radius", String(config.radius));
   url.searchParams.set("rows", String(config.rows));
-  url.searchParams.set("start", "0");
+  url.searchParams.set("start", String(start));
   url.searchParams.set("car_type", config.carType);
 
   if (config.make) url.searchParams.set("make", config.make);
@@ -671,6 +738,22 @@ function extractListings(payload: Record<string, unknown>) {
   }
 
   return [];
+}
+
+function getMarketCheckTotalFound(payload: Record<string, unknown>) {
+  const response = getObject(payload, "response");
+  return (
+    getNumber(payload, "num_found") ??
+    getNumber(payload, "numFound") ??
+    getNumber(payload, "total") ??
+    getNumber(payload, "total_count") ??
+    getNumber(payload, "totalCount") ??
+    getNumber(response, "num_found") ??
+    getNumber(response, "numFound") ??
+    getNumber(response, "total") ??
+    getNumber(response, "total_count") ??
+    getNumber(response, "totalCount")
+  );
 }
 
 function extractImageUrls(row: MarketCheckRow, media: Record<string, unknown> | undefined) {

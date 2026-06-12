@@ -40,8 +40,8 @@ Option 1: create `.env.local` in the project root:
 MARKETCHECK_API_KEY=your_key_here
 MARKETCHECK_ZIP=36360
 MARKETCHECK_TARGET_COUNT=50
-MARKETCHECK_PRIMARY_RADIUS=75
-MARKETCHECK_SECONDARY_RADIUS=150
+MARKETCHECK_PRIMARY_RADIUS=100
+MARKETCHECK_SECONDARY_RADIUS=100
 MARKETCHECK_MAX_CALLS_PER_RUN=3
 MARKETCHECK_MONTHLY_CALL_LIMIT=500
 MARKETCHECK_MONTHLY_SAFETY_BUFFER=50
@@ -99,23 +99,25 @@ POST /api/marketcheck/sync
 
 It is built for the free MarketCheck plan:
 
-- One MarketCheck call per sync.
-- `rows=500`, `radius<=100`, `start=0`.
+- Paginates through MarketCheck results until `MARKETCHECK_TARGET_COUNT`, `MARKETCHECK_MAX_CALLS_PER_RUN`, or the monthly safety limit is reached.
+- The API may return 10 listings per page even when `rows=500` is requested, so `start` is advanced by the actual page size returned.
 - Returned listings are upserted into Supabase.
 - Returned provider IDs are marked with `last_seen_at`.
-- MarketCheck listings not seen again are archived after `MARKETCHECK_STALE_GRACE_HOURS`.
+- MarketCheck listings not seen again are archived after `MARKETCHECK_STALE_GRACE_HOURS` only when the sync fetched the complete result set.
 - User-uploaded listings are never touched by this sync.
 - Stale listings are archived, not hard-deleted, so a provider outage does not permanently wipe inventory.
 
-Vercel cron runs the endpoint daily at `09:00 UTC` through `vercel.json`. Daily sync uses roughly 30 calls/month, leaving most of the 500-call free plan for manual refreshes or future experiments.
+Vercel cron runs the endpoint daily at `09:00 UTC` through `vercel.json`. With `MARKETCHECK_MAX_CALLS_PER_RUN=3`, daily sync uses up to about 93 calls in a 31-day month, leaving most of a 500-call MarketCheck plan untouched.
 
 Required production environment variables:
 
 ```env
 MARKETCHECK_API_KEY=your_key_here
 MARKETCHECK_ZIP=36360
+MARKETCHECK_TARGET_COUNT=50
 MARKETCHECK_PRIMARY_RADIUS=100
 MARKETCHECK_ROWS=500
+MARKETCHECK_MAX_CALLS_PER_RUN=3
 MARKETCHECK_STALE_GRACE_HOURS=72
 MARKETCHECK_MONTHLY_CALL_LIMIT=500
 MARKETCHECK_MONTHLY_SAFETY_BUFFER=50
