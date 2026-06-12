@@ -40,6 +40,8 @@ import {
 import { normalizeListing } from "@/src/lib/normalizeListing";
 
 const maxImageUploads = 90;
+const maxVideoChunkSeconds = 5 * 60;
+const minimumVideoCompressionSize = 12 * 1024 * 1024;
 type MediaMode = "video" | "photos";
 type SellerProofItem =
   | "exterior"
@@ -76,8 +78,8 @@ type ListingDraftForm = {
 type DraftTextField = Exclude<keyof ListingDraftForm, "knownIssueFlags" | "sellerProofItems">;
 type PreparedVideoWork = {
   source: File;
-  promise: Promise<File>;
-  result?: File;
+  promise: Promise<File[]>;
+  result?: File[];
 };
 type VinDecodeStatus = "idle" | "loading" | "success" | "error";
 type VinDecodedVehicle = {
@@ -340,45 +342,34 @@ export function AddListingView({
 
     const work: PreparedVideoWork = {
       source: file,
-      promise: prepareVideoFileForUpload(file, () => null)
+      promise: prepareVideoFilesForUpload(file, () => null)
     };
 
     work.promise
-      .then((preparedFile) => {
-        work.result = preparedFile;
+      .then((preparedFiles) => {
+        work.result = preparedFiles;
       })
-      .catch(() => {
-        work.result = file;
-      });
+      .catch(() => undefined);
 
     preparedVideoRef.current = work;
   };
 
-  const getPreparedVideoFileForPublish = async (file: File) => {
+  const getPreparedVideoFilesForPublish = async (file: File) => {
     const work = preparedVideoRef.current;
 
     if (work?.source === file) {
       if (work.result) {
-        if (work.result !== file) {
-          setCompressionStatus(
-            `Optimized video from ${formatFileSize(file.size)} to ${formatFileSize(work.result.size)} before upload.`
-          );
-        }
-
+        setCompressionStatus(formatPreparedVideoStatus(file, work.result));
         return work.result;
       }
 
-      setCompressionStatus("Finishing video optimization before upload...");
-      const preparedFile = await work.promise;
-      if (preparedFile !== file) {
-        setCompressionStatus(
-          `Optimized video from ${formatFileSize(file.size)} to ${formatFileSize(preparedFile.size)} before upload.`
-        );
-      }
-      return preparedFile;
+      setCompressionStatus("Finishing video preparation before upload...");
+      const preparedFiles = await work.promise;
+      setCompressionStatus(formatPreparedVideoStatus(file, preparedFiles));
+      return preparedFiles;
     }
 
-    return prepareVideoFileForUpload(file, setCompressionStatus);
+    return prepareVideoFilesForUpload(file, setCompressionStatus);
   };
 
   const handleVideoFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -507,7 +498,7 @@ export function AddListingView({
     setIsPublishing(true);
     setError(null);
     setCompressionStatus(null);
-    let preparedVideoPreviewUrl: string | null = null;
+    let preparedVideoPreviewUrls: string[] = [];
 
     try {
       const year = toNumber(form.year);
@@ -535,12 +526,12 @@ export function AddListingView({
 
       const preparedFiles =
         mediaMode === "video"
-          ? [await getPreparedVideoFileForPublish(selectedFiles[0])]
+          ? await getPreparedVideoFilesForPublish(selectedFiles[0])
           : selectedFiles;
-      if (mediaMode === "video" && preparedFiles[0] !== selectedFiles[0]) {
-        preparedVideoPreviewUrl = URL.createObjectURL(preparedFiles[0]);
+      if (mediaMode === "video" && preparedFiles.some((file) => file !== selectedFiles[0])) {
+        preparedVideoPreviewUrls = preparedFiles.map((file) => URL.createObjectURL(file));
       }
-      const preparedPreviewUrls = preparedVideoPreviewUrl ? [preparedVideoPreviewUrl] : previewUrls;
+      const preparedPreviewUrls = preparedVideoPreviewUrls.length > 0 ? preparedVideoPreviewUrls : previewUrls;
       const mediaItems = await getListingMediaItems(preparedFiles, preparedPreviewUrls, mediaMode);
       if (mediaItems.length === 0) {
         setError(
@@ -559,7 +550,7 @@ export function AddListingView({
       const mediaVerification = requiresManualReview
         ? createManualReviewMediaVerification()
         : await verifyListingMedia({
-            files: preparedFiles,
+            files: mediaMode === "video" ? selectedFiles : preparedFiles,
             mediaMode,
             listing: {
               year,
@@ -708,10 +699,16 @@ export function AddListingView({
             mediaType: preparedFiles[0]?.type,
             mediaCount: mediaItems.length,
             mediaStorage: "supabase",
-            optimizedBeforeUpload: mediaMode === "video" && preparedFiles[0] !== selectedFiles[0],
+            optimizedBeforeUpload:
+              mediaMode === "video" && preparedFiles.some((file) => file !== selectedFiles[0]),
+            splitIntoVideoParts: mediaMode === "video" && preparedFiles.length > 1,
+            videoPartCount: mediaMode === "video" ? preparedFiles.length : undefined,
             originalBytes: selectedFiles[0]?.size,
-            uploadBytes: preparedFiles[0]?.size,
-            mediaDurationSeconds: mediaItems[0]?.durationSeconds,
+            uploadBytes: preparedFiles.reduce((sum, file) => sum + file.size, 0),
+            mediaDurationSeconds: mediaItems.reduce(
+              (sum, item) => sum + (item.durationSeconds ?? 0),
+              0
+            ),
             sellerProofItems: form.sellerProofItems,
             mediaVerification,
             moderation: requiresManualReview
@@ -743,9 +740,7 @@ export function AddListingView({
     } catch (publishError) {
       setError(formatPublishError(publishError));
     } finally {
-      if (preparedVideoPreviewUrl) {
-        URL.revokeObjectURL(preparedVideoPreviewUrl);
-      }
+      preparedVideoPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
       setCompressionStatus(null);
       setIsPublishing(false);
     }
@@ -754,12 +749,12 @@ export function AddListingView({
   const helperText = useMemo(() => {
     if (selectedFiles.length === 0) {
       return mediaMode === "video"
-        ? "Add one 9:16 walkaround video, then publish it to the feed."
+        ? "Add one walkaround video. Long videos are prepared as 5-minute parts before upload."
         : `Select up to ${maxImageUploads} photos. The feed will treat them like a swipeable story.`;
     }
 
     if (isVideo) {
-      return `Video selected: ${formatFileSize(selectedFile.size)}. Upload uses resumable storage and may take a moment on mobile.`;
+      return `Video selected: ${formatFileSize(selectedFile.size)}. Videos over 5 minutes will be split before upload.`;
     }
 
     const totalSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
@@ -1375,22 +1370,28 @@ async function getListingMediaItems(
   }
 
   if (mediaMode === "video") {
-    const firstVideoIndex = files.findIndex((file) => file.type.startsWith("video/"));
-    if (firstVideoIndex < 0) {
+    const videoFiles = files.filter((file) => file.type.startsWith("video/"));
+    if (videoFiles.length === 0) {
       return [];
     }
-    const videoMetadata = await readVideoFileMetadata(files[firstVideoIndex]);
 
-    return [
-      {
-        url: previewUrls[firstVideoIndex] ?? "/cars/sedan-night.svg",
-        type: "video",
-        label: "Walkaround video",
-        width: videoMetadata.width,
-        height: videoMetadata.height,
-        durationSeconds: videoMetadata.durationSeconds
-      }
-    ] satisfies ListingMediaItem[];
+    return Promise.all(
+      videoFiles.map(async (file, index) => {
+        const videoMetadata = await readVideoFileMetadata(file);
+
+        return {
+          url: previewUrls[index] ?? "/cars/sedan-night.svg",
+          type: "video" as const,
+          label:
+            videoFiles.length > 1
+              ? `Walkaround video ${index + 1}/${videoFiles.length}`
+              : "Walkaround video",
+          width: videoMetadata.width,
+          height: videoMetadata.height,
+          durationSeconds: videoMetadata.durationSeconds
+        };
+      })
+    );
   }
 
   const imageFiles = files.filter((file) => file.type.startsWith("image/")).slice(0, maxImageUploads);
@@ -1939,14 +1940,37 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function prepareVideoFileForUpload(
+function formatPreparedVideoStatus(source: File, preparedFiles: File[]) {
+  if (preparedFiles.length === 0) return null;
+
+  const uploadBytes = preparedFiles.reduce((sum, file) => sum + file.size, 0);
+
+  if (preparedFiles.length > 1) {
+    return `Prepared ${preparedFiles.length} video parts from ${formatFileSize(source.size)} to ${formatFileSize(uploadBytes)} total before upload.`;
+  }
+
+  if (preparedFiles[0] !== source) {
+    return `Optimized video from ${formatFileSize(source.size)} to ${formatFileSize(uploadBytes)} before upload.`;
+  }
+
+  return null;
+}
+
+async function prepareVideoFilesForUpload(
   file: File,
   onStatus: (message: string | null) => void
 ) {
-  const minimumCompressionSize = 12 * 1024 * 1024;
+  if (!file.type.startsWith("video/")) {
+    return [file];
+  }
 
-  if (!file.type.startsWith("video/") || file.size < minimumCompressionSize) {
-    return file;
+  const metadata = await readVideoFileMetadata(file);
+  const durationSeconds = metadata.durationSeconds ?? 0;
+  const shouldSplit = durationSeconds > maxVideoChunkSeconds;
+  const shouldCompress = file.size >= minimumVideoCompressionSize || shouldSplit;
+
+  if (!shouldCompress) {
+    return [file];
   }
 
   if (
@@ -1954,36 +1978,102 @@ async function prepareVideoFileForUpload(
     typeof document === "undefined" ||
     !HTMLCanvasElement.prototype.captureStream
   ) {
-    onStatus("Video optimization is not supported in this browser. Uploading the original file.");
-    return file;
+    if (shouldSplit) {
+      throw new Error(
+        "This browser cannot split videos over 5 minutes. Try again from a modern Chrome, Edge, or Safari browser."
+      );
+    }
+
+    onStatus("Video preparation is not supported in this browser. Uploading the original file.");
+    return [file];
   }
 
   try {
-    const optimizedFile = await compressVideoFile(file, onStatus);
+    if (shouldSplit && durationSeconds > 0) {
+      const videoParts = await splitAndCompressVideoFile(file, durationSeconds, onStatus);
+      const uploadBytes = videoParts.reduce((sum, part) => sum + part.size, 0);
+      onStatus(
+        `Prepared ${videoParts.length} video parts totaling ${formatFileSize(uploadBytes)} for upload.`
+      );
+      return videoParts;
+    }
+
+    const optimizedFile = await compressVideoSegment(file, {
+      startTime: 0,
+      endTime: durationSeconds || undefined,
+      partIndex: 0,
+      partCount: 1,
+      onStatus
+    });
 
     if (optimizedFile.size >= file.size * 0.96) {
       onStatus(`Optimization did not reduce the file enough. Uploading original ${formatFileSize(file.size)} video.`);
-      return file;
+      return [file];
     }
 
     onStatus(
       `Optimized video from ${formatFileSize(file.size)} to ${formatFileSize(optimizedFile.size)} before upload.`
     );
-    return optimizedFile;
+    return [optimizedFile];
   } catch (compressionError) {
+    if (shouldSplit) {
+      throw new Error(
+        `Could not split this video into 5-minute parts: ${readErrorMessage(compressionError)}`
+      );
+    }
+
     onStatus(`Video optimization skipped: ${readErrorMessage(compressionError)} Uploading the original file.`);
-    return file;
+    return [file];
   }
 }
 
-async function compressVideoFile(
+async function splitAndCompressVideoFile(
   file: File,
+  durationSeconds: number,
   onStatus: (message: string | null) => void
+) {
+  const partCount = Math.ceil(durationSeconds / maxVideoChunkSeconds);
+  const parts: File[] = [];
+
+  for (let index = 0; index < partCount; index += 1) {
+    const startTime = index * maxVideoChunkSeconds;
+    const endTime = Math.min(durationSeconds, startTime + maxVideoChunkSeconds);
+
+    parts.push(
+      await compressVideoSegment(file, {
+        startTime,
+        endTime,
+        partIndex: index,
+        partCount,
+        onStatus
+      })
+    );
+  }
+
+  return parts;
+}
+
+async function compressVideoSegment(
+  file: File,
+  {
+    startTime,
+    endTime,
+    partIndex,
+    partCount,
+    onStatus
+  }: {
+    startTime: number;
+    endTime?: number;
+    partIndex: number;
+    partCount: number;
+    onStatus: (message: string | null) => void;
+  }
 ) {
   const sourceUrl = URL.createObjectURL(file);
   const video = document.createElement("video");
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d", { alpha: false });
+  let frameRequest: number | null = null;
 
   if (!context) {
     URL.revokeObjectURL(sourceUrl);
@@ -1998,6 +2088,13 @@ async function compressVideoFile(
   try {
     await waitForVideoMetadata(video);
 
+    const sourceDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+    const safeStartTime = Math.max(0, Math.min(startTime, Math.max(0, sourceDuration - 0.1)));
+    const safeEndTime = Math.min(
+      sourceDuration || endTime || safeStartTime + maxVideoChunkSeconds,
+      Math.max(safeStartTime + 0.1, endTime ?? sourceDuration)
+    );
+    const segmentDuration = Math.max(0.1, safeEndTime - safeStartTime);
     const dimensions = getCompressedVideoDimensions(video.videoWidth, video.videoHeight);
     canvas.width = dimensions.width;
     canvas.height = dimensions.height;
@@ -2016,7 +2113,7 @@ async function compressVideoFile(
     const chunks: BlobPart[] = [];
     const recorder = new MediaRecorder(outputStream, {
       mimeType,
-      videoBitsPerSecond: 2_200_000,
+      videoBitsPerSecond: getVideoBitrate(segmentDuration),
       audioBitsPerSecond: sourceAudioTracks.length > 0 ? 96_000 : undefined
     });
 
@@ -2030,49 +2127,78 @@ async function compressVideoFile(
       recorder.onstop = () => {
         const storageMimeType = getStorageVideoMimeType(mimeType);
         const blob = new Blob(chunks, { type: storageMimeType });
+        if (blob.size === 0) {
+          reject(new Error("The prepared video part was empty."));
+          return;
+        }
+
         const extension = storageMimeType === "video/mp4" ? "mp4" : "webm";
         const baseName = file.name.replace(/\.[^.]+$/, "") || "seller-video";
-        resolve(new File([blob], `${baseName}-optimized.${extension}`, { type: storageMimeType }));
+        const suffix = partCount > 1 ? `part-${String(partIndex + 1).padStart(2, "0")}` : "optimized";
+        resolve(new File([blob], `${baseName}-${suffix}.${extension}`, { type: storageMimeType }));
       };
     });
 
     const startedAt = Date.now();
     let lastStatusAt = 0;
+    let stopped = false;
+    const stopRecording = () => {
+      if (stopped) return;
+      stopped = true;
+      if (recorder.state !== "inactive") {
+        recorder.stop();
+      }
+    };
     const drawFrame = () => {
-      if (video.paused || video.ended) return;
+      if (stopped) return;
+
+      if (video.ended || video.currentTime >= safeEndTime) {
+        drawContainedFrame(context, video, canvas.width, canvas.height);
+        stopRecording();
+        return;
+      }
+
+      if (video.paused) return;
 
       drawContainedFrame(context, video, canvas.width, canvas.height);
 
       const now = Date.now();
-      if (now - lastStatusAt > 700 && Number.isFinite(video.duration) && video.duration > 0) {
+      if (now - lastStatusAt > 700) {
         lastStatusAt = now;
-        const percentage = Math.min(99, Math.round((video.currentTime / video.duration) * 100));
-        onStatus(`Optimizing video before upload... ${percentage}%`);
+        const segmentProgress = Math.max(0, Math.min(1, (video.currentTime - safeStartTime) / segmentDuration));
+        const totalProgress = (partIndex + segmentProgress) / partCount;
+        const percentage = Math.min(99, Math.round(totalProgress * 100));
+        onStatus(
+          partCount > 1
+            ? `Preparing video part ${partIndex + 1}/${partCount}... ${percentage}%`
+            : `Optimizing video before upload... ${percentage}%`
+        );
       }
 
-      requestAnimationFrame(drawFrame);
+      frameRequest = requestAnimationFrame(drawFrame);
     };
+
+    video.currentTime = safeStartTime;
+    if (safeStartTime > 0.05) {
+      await waitForVideoSeeked(video);
+    }
 
     recorder.start(1000);
     await video.play();
     drawFrame();
 
-    await new Promise<void>((resolve) => {
-      video.onended = () => {
-        drawContainedFrame(context, video, canvas.width, canvas.height);
-        resolve();
-      };
-    });
-
-    if (recorder.state !== "inactive") {
-      recorder.stop();
-    }
-
     const optimizedFile = await completion;
     const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-    onStatus(`Video optimized in ${elapsedSeconds}s. Preparing upload...`);
+    onStatus(
+      partCount > 1
+        ? `Video part ${partIndex + 1}/${partCount} prepared in ${elapsedSeconds}s.`
+        : `Video optimized in ${elapsedSeconds}s. Preparing upload...`
+    );
     return optimizedFile;
   } finally {
+    if (typeof frameRequest === "number") {
+      cancelAnimationFrame(frameRequest);
+    }
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -2100,6 +2226,12 @@ function getCompressedVideoDimensions(width: number, height: number) {
     width: makeEven(Math.round(sourceWidth * scale)),
     height: makeEven(Math.round(sourceHeight * scale))
   };
+}
+
+function getVideoBitrate(durationSeconds: number) {
+  if (durationSeconds <= 60) return 2_200_000;
+  if (durationSeconds <= 180) return 1_600_000;
+  return 1_150_000;
 }
 
 function makeEven(value: number) {

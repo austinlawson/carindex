@@ -406,7 +406,9 @@ async function uploadListingFiles(
     uploaded.push({
       url: publicUrl,
       type: file.type.startsWith("video/") ? "video" : "image",
-      label: file.type.startsWith("video/") ? "Walkaround video" : `Photo ${index + 1}`,
+      label:
+        sourceMedia?.label ??
+        (file.type.startsWith("video/") ? "Walkaround video" : `Photo ${index + 1}`),
       width: sourceMedia?.width ?? fileMetadata.width,
       height: sourceMedia?.height ?? fileMetadata.height,
       durationSeconds: file.type.startsWith("video/")

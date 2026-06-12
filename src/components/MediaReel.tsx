@@ -75,10 +75,10 @@ export function MediaReel({
   const shouldAttachVideoSource = isActive || preloadMode !== "none";
   const effectiveVideoPreload: MediaPreloadMode =
     isActive || preloadMode === "auto" ? "auto" : preloadMode;
-  const nextImageUrl =
-    hasMedia && frames[(safeActiveIndex + 1) % frames.length]?.type === "image"
-      ? frames[(safeActiveIndex + 1) % frames.length]?.url
-      : undefined;
+  const nextMedia =
+    hasMedia && frames.length > 1 ? frames[(safeActiveIndex + 1) % frames.length] : undefined;
+  const nextImageUrl = nextMedia?.type === "image" ? nextMedia.url : undefined;
+  const nextVideoUrl = nextMedia?.type === "video" ? nextMedia.url : undefined;
   const hasGallery = frames.some((item) => item.type === "image");
   const activeImageIndex = Math.max(
     0,
@@ -639,6 +639,16 @@ export function MediaReel({
               Seller video
             </span>
           </div> : null}
+          {isActive && nextVideoUrl ? (
+            <video
+              src={nextVideoUrl}
+              preload="auto"
+              muted
+              playsInline
+              className="hidden"
+              aria-hidden="true"
+            />
+          ) : null}
         </div>
       ) : activeMedia?.type === "image" ? (
         <div key={activeMedia.url} className="absolute inset-0 animate-fade-in">
