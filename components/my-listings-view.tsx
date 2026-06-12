@@ -152,7 +152,11 @@ function ManagedListingCard({
   onRequestManualReview: () => Promise<void> | void;
 }) {
   const confidence = getListingConfidence(listing);
-  const rejected = hasMediaMismatch(listing) || hasJunkMediaSignal(listing);
+  const mediaRejected = hasMediaMismatch(listing) || hasJunkMediaSignal(listing);
+  const manualReviewRejected =
+    listing.tags.includes("manual-review-rejected") ||
+    readModerationStatus(listing) === "manual_review_rejected";
+  const rejected = mediaRejected || manualReviewRejected;
   const manualReviewRequested =
     listing.tags.includes("manual-review-requested") ||
     readModerationStatus(listing) === "manual_review_requested";
@@ -171,7 +175,10 @@ function ManagedListingCard({
       : "border-amber-200/28 bg-amber-200/12 text-amber-100"
     : "border-emerald-200/24 bg-emerald-200/10 text-emerald-100";
   const issue = rejected
-    ? getMediaVerificationIssue(listing)
+    ? getReviewerNotes(listing) ||
+      (mediaRejected
+        ? getMediaVerificationIssue(listing)
+        : "This listing was not approved after manual review.")
     : "This listing is waiting for manual review before it can appear in the public feed.";
 
   return (
@@ -216,7 +223,7 @@ function ManagedListingCard({
             {rejected ? "Rejection reason" : "Review status"}
           </p>
           <p className="mt-1 text-xs font-bold leading-5 text-amber-50/82">{issue}</p>
-          {rejected ? (
+          {mediaRejected ? (
             <p className="mt-1 text-[11px] font-bold leading-4 text-white/48">
               Delete and repost with correct car media, or request manual review if this was wrong.
             </p>
@@ -227,7 +234,7 @@ function ManagedListingCard({
       <div className="mt-3 grid grid-cols-2 gap-2">
         <SmallActionButton label="Feedback" onClick={onOpenAnalysis} />
         <SmallActionButton label="Edit" icon={<Edit3 className="h-3.5 w-3.5" />} onClick={onEditListing} />
-        {rejected ? (
+        {mediaRejected ? (
           <SmallActionButton
             label={manualReviewRequested ? "Review requested" : "Manual review"}
             disabled={manualReviewRequested}
@@ -235,7 +242,11 @@ function ManagedListingCard({
             onClick={onRequestManualReview}
           />
         ) : (
-          <SmallActionButton label={needsReview ? "In review" : "Live"} disabled icon={<Check className="h-3.5 w-3.5" />} />
+          <SmallActionButton
+            label={manualReviewRejected ? "Rejected" : needsReview ? "In review" : "Live"}
+            disabled
+            icon={<Check className="h-3.5 w-3.5" />}
+          />
         )}
         <SmallActionButton
           label="Delete"
@@ -450,10 +461,17 @@ function EditorTextarea({
 }
 
 function isRejectedOrReviewListing(listing: CarListing) {
+  const status = readModerationStatus(listing);
+
   return (
     hasMediaMismatch(listing) ||
     hasJunkMediaSignal(listing) ||
-    readModerationStatus(listing).startsWith("manual_review")
+    status === "manual_review_required" ||
+    status === "manual_review_requested" ||
+    status === "manual_review_rejected" ||
+    listing.tags.includes("manual-review-required") ||
+    listing.tags.includes("manual-review-requested") ||
+    listing.tags.includes("manual-review-rejected")
   );
 }
 
@@ -465,6 +483,16 @@ function readModerationStatus(listing: CarListing) {
 
   const status = (moderation as { status?: unknown }).status;
   return typeof status === "string" ? status : "";
+}
+
+function getReviewerNotes(listing: CarListing) {
+  const moderation = listing.rawProviderSummary?.moderation;
+  if (!moderation || typeof moderation !== "object" || Array.isArray(moderation)) {
+    return "";
+  }
+
+  const notes = (moderation as { reviewerNotes?: unknown }).reviewerNotes;
+  return typeof notes === "string" ? notes.trim() : "";
 }
 
 function readPositiveNumber(value: string) {

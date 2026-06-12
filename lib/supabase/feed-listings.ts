@@ -134,13 +134,14 @@ function isSuppressedFromPublicFeed(row: ListingRow) {
 
   const tags = Array.isArray(row.tags) ? row.tags : [];
   const hasSuppressedTag = tags.some((tag) =>
-    /media-mismatch|media-junk|media-spam|media-unrelated|manual-review-required|manual-review-requested/i.test(tag)
+    /media-mismatch|media-junk|media-spam|media-unrelated|manual-review-required|manual-review-requested|manual-review-rejected/i.test(tag)
   );
 
   return (
     hasSuppressedTag ||
     readModerationStatus(row.raw_provider_summary) === "manual_review_required" ||
     readModerationStatus(row.raw_provider_summary) === "manual_review_requested" ||
+    readModerationStatus(row.raw_provider_summary) === "manual_review_rejected" ||
     hasMediaMismatch(row.raw_provider_summary) ||
     hasJunkMediaSignal(row.raw_provider_summary)
   );

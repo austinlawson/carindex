@@ -10,7 +10,8 @@ export type TabId =
   | "profile"
   | "listings"
   | "inbox"
-  | "seller-info";
+  | "seller-info"
+  | "admin-review";
 
 const tabs = [
   { id: "feed", label: "Feed", icon: Home },
@@ -39,7 +40,10 @@ export function BottomNav({
           const Icon = tab.icon;
           const isProfileSection =
             tab.id === "profile" &&
-            (activeTab === "listings" || activeTab === "inbox" || activeTab === "seller-info");
+            (activeTab === "listings" ||
+              activeTab === "inbox" ||
+              activeTab === "seller-info" ||
+              activeTab === "admin-review");
           const isActive = activeTab === tab.id || isProfileSection;
           const isAdd = tab.id === "add";
 

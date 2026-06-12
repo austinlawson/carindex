@@ -14,6 +14,7 @@ import {
   X
 } from "lucide-react";
 import { AddListingView } from "@/components/add-listing-view";
+import { AdminReviewView } from "@/components/admin-review-view";
 import { AnalysisSheet } from "@/components/analysis-sheet";
 import { AskAiView } from "@/components/ask-ai-view";
 import { AuthView } from "@/components/auth-view";
@@ -29,6 +30,7 @@ import { ProfileView } from "@/components/profile-view";
 import { SavedView } from "@/components/saved-view";
 import { SellerInfoView } from "@/components/seller-info-view";
 import type { CarListing } from "@/data/listings";
+import { useAdminReviews } from "@/hooks/use-admin-reviews";
 import { useAuth } from "@/hooks/use-auth";
 import { useFeedInterest } from "@/hooks/use-feed-interest";
 import { useOffers } from "@/hooks/use-offers";
@@ -113,6 +115,7 @@ export function AppShell({
     markActiveListing,
     trackListingEvent
   } = useFeedInterest(userId);
+  const adminReviews = useAdminReviews(userId);
   const { savedIds, isSaved, toggleSaved } = useSavedCars(userId);
   const {
     offers,
@@ -535,6 +538,51 @@ export function AppShell({
         />
       ) : null}
 
+      {activeTab === "admin-review" && user && adminReviews.isAdmin ? (
+        <AdminReviewView
+          listings={adminReviews.listings}
+          loading={adminReviews.loading}
+          error={adminReviews.error}
+          onBack={() => switchTab("profile")}
+          onReload={adminReviews.reload}
+          onApprove={async (listingId, notes) => {
+            const reviewedListing = await adminReviews.decideReview({
+              listingId,
+              decision: "approve",
+              notes
+            });
+
+            if (reviewedListing) {
+              setFeedListings((current) => [
+                reviewedListing,
+                ...current.filter((listing) => listing.id !== reviewedListing.id)
+              ]);
+            }
+          }}
+          onReject={async (listingId, notes) => {
+            const reviewedListing = await adminReviews.decideReview({
+              listingId,
+              decision: "reject",
+              notes
+            });
+
+            if (reviewedListing) {
+              setFeedListings((current) =>
+                current.filter((listing) => listing.id !== reviewedListing.id)
+              );
+            }
+          }}
+        />
+      ) : null}
+
+      {activeTab === "admin-review" && (!user || !adminReviews.isAdmin) ? (
+        <AuthView
+          compact
+          message="Admin access is required to review listings."
+          onAuthenticated={() => setAuthMessage(null)}
+        />
+      ) : null}
+
       {activeTab === "profile" && user ? (
         <ProfileView
           savedCount={savedListings.length}
@@ -547,6 +595,9 @@ export function AppShell({
           onOpenListings={() => switchTab("listings")}
           onOpenInbox={() => switchTab("inbox")}
           onOpenSaved={() => switchTab("saved")}
+          isAdmin={adminReviews.isAdmin}
+          adminReviewCount={adminReviews.pendingCount}
+          onOpenAdminReview={() => switchTab("admin-review")}
         />
       ) : null}
 
@@ -606,8 +657,15 @@ export function AppShell({
       ) : null}
     </>
   );
+  const adminReviewNotificationCount = adminReviews.isAdmin ? adminReviews.pendingCount : 0;
   const feedNotificationAction =
-    activeTab === "feed" && user && sellerNotifications.length > 0 && !showFeedEntry && !feedChromeHidden ? (
+    activeTab === "feed" && user && adminReviewNotificationCount > 0 && !showFeedEntry && !feedChromeHidden ? (
+      <NotificationBellButton
+        count={adminReviewNotificationCount}
+        variant={isDesktop ? "desktop" : "mobile"}
+        onClick={() => switchTab("admin-review")}
+      />
+    ) : activeTab === "feed" && user && sellerNotifications.length > 0 && !showFeedEntry && !feedChromeHidden ? (
       <NotificationBellButton
         count={sellerNotifications.length}
         variant={isDesktop ? "desktop" : "mobile"}
@@ -1064,11 +1122,15 @@ function NotificationsSheet({
 
 function createSellerNotification(listing: CarListing): SellerNotification {
   const rejected = isRejectedMediaListing(listing);
+  const reviewerNotes = getReviewerNotes(listing);
   const manualReviewRequested =
     listing.tags.some((tag) => /manual-review-requested/i.test(tag)) ||
     readModerationStatus(listing) === "manual_review_requested";
+  const manualReviewRejected =
+    listing.tags.some((tag) => /manual-review-rejected/i.test(tag)) ||
+    readModerationStatus(listing) === "manual_review_rejected";
 
-  if (rejected) {
+  if (rejected || manualReviewRejected) {
     return {
       id: `${listing.id}:rejected`,
       listing,
@@ -1076,7 +1138,7 @@ function createSellerNotification(listing: CarListing): SellerNotification {
       title: manualReviewRequested ? "Manual review requested" : "Listing rejected",
       message: manualReviewRequested
         ? "Your listing is waiting for manual review. It is private until review is resolved."
-        : getMediaVerificationIssue(listing)
+        : reviewerNotes || getMediaVerificationIssue(listing)
     };
   }
 
@@ -1149,9 +1211,10 @@ function isRejectedMediaListing(listing: CarListing) {
 
 function isManualReviewListing(listing: CarListing) {
   return (
-    listing.tags.some((tag) => /manual-review-required|manual-review-requested/i.test(tag)) ||
+    listing.tags.some((tag) => /manual-review-required|manual-review-requested|manual-review-rejected/i.test(tag)) ||
     readModerationStatus(listing) === "manual_review_required" ||
-    readModerationStatus(listing) === "manual_review_requested"
+    readModerationStatus(listing) === "manual_review_requested" ||
+    readModerationStatus(listing) === "manual_review_rejected"
   );
 }
 
@@ -1163,6 +1226,16 @@ function readModerationStatus(listing: CarListing) {
 
   const status = (moderation as { status?: unknown }).status;
   return typeof status === "string" ? status : "";
+}
+
+function getReviewerNotes(listing: CarListing) {
+  const moderation = listing.rawProviderSummary?.moderation;
+  if (!moderation || typeof moderation !== "object" || Array.isArray(moderation)) {
+    return "";
+  }
+
+  const notes = (moderation as { reviewerNotes?: unknown }).reviewerNotes;
+  return typeof notes === "string" ? notes.trim() : "";
 }
 
 function buildEndlessFeedListings(

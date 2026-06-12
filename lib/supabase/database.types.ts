@@ -9,6 +9,20 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      admin_users: {
+        Row: {
+          user_id: string;
+          granted_by: string | null;
+          granted_at: string;
+        };
+        Insert: {
+          user_id: string;
+          granted_by?: string | null;
+          granted_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["admin_users"]["Insert"]>;
+        Relationships: [];
+      };
       profiles: {
         Row: {
           id: string;

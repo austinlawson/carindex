@@ -9,6 +9,7 @@ import {
   HandCoins,
   ListChecks,
   LogOut,
+  ShieldCheck,
   Store
 } from "lucide-react";
 import type { SellerType } from "@/data/listings";
@@ -24,7 +25,10 @@ export function ProfileView({
   onOpenSellerInfo,
   onOpenListings,
   onOpenInbox,
-  onOpenSaved
+  onOpenSaved,
+  isAdmin = false,
+  adminReviewCount = 0,
+  onOpenAdminReview
 }: {
   savedCount: number;
   listingCount: number;
@@ -36,6 +40,9 @@ export function ProfileView({
   onOpenListings: () => void;
   onOpenInbox: () => void;
   onOpenSaved: () => void;
+  isAdmin?: boolean;
+  adminReviewCount?: number;
+  onOpenAdminReview?: () => void;
 }) {
   return (
     <section className="no-scrollbar h-full overflow-y-auto bg-[#07080b] px-4 pb-[calc(env(safe-area-inset-bottom)+112px)] pt-[calc(env(safe-area-inset-top)+18px)]">
@@ -95,6 +102,15 @@ export function ProfileView({
           meta="Listings you want to revisit"
           onClick={onOpenSaved}
         />
+        {isAdmin ? (
+          <ProfileNavCard
+            icon={<ShieldCheck className="h-5 w-5" />}
+            title="Admin review"
+            detail={`${adminReviewCount} pending`}
+            meta="Approve or reject manual-review listings"
+            onClick={onOpenAdminReview}
+          />
+        ) : null}
         <ProfileNavCard
           icon={<Bell className="h-5 w-5" />}
           title="Notifications"
