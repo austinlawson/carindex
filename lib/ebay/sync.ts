@@ -11,6 +11,7 @@ import type { CarListing, RawListingInput } from "@/src/lib/listingTypes";
 const provider = "ebay";
 const defaultTokenUrl = "https://api.ebay.com/identity/v1/oauth2/token";
 const defaultSearchUrl = "https://api.ebay.com/buy/browse/v1/item_summary/search";
+const defaultItemUrl = "https://api.ebay.com/buy/browse/v1/item";
 const defaultScope = "https://api.ebay.com/oauth/api_scope";
 
 type SupabaseAdmin = NonNullable<ReturnType<typeof createSupabaseAdminClient>>;
@@ -23,6 +24,7 @@ type EbaySyncConfig = {
   clientSecret?: string;
   tokenUrl: string;
   searchUrl: string;
+  itemUrl: string;
   scope: string;
   marketplaceId: string;
   categoryId: string;
@@ -32,6 +34,9 @@ type EbaySyncConfig = {
   offset: number;
   maxPagesPerSync: number;
   localPickupMaxPagesPerSync: number;
+  itemDetailMaxPerSync: number;
+  itemDetailConcurrency: number;
+  staleVerificationMaxPerSync: number;
   buyingOptions: string[];
   itemLocationCountry?: string;
   localDistanceOnly: boolean;
@@ -41,8 +46,8 @@ type EbaySyncConfig = {
   maxMediaPerListing: number;
   staleGraceHours: number;
   archiveMinSeenListings: number;
-  monthlyCallLimit: number;
-  monthlySafetyBuffer: number;
+  dailyCallLimit: number;
+  dailySafetyBuffer: number;
 };
 
 type EbayRow = Record<string, unknown>;
@@ -67,6 +72,14 @@ type EbaySearchPlan = {
   config: EbaySyncConfig;
 };
 
+type EbayDetailResult = {
+  rows: EbayRow[];
+  callsUsed: number;
+  detailsFetched: number;
+  detailsFailed: number;
+  detailsSkipped: number;
+};
+
 export type EbaySyncResult = {
   ok: boolean;
   dryRun: boolean;
@@ -74,10 +87,14 @@ export type EbaySyncResult = {
   startedAt: string;
   finishedAt: string;
   callsUsed: number;
-  monthlyCallsUsedBeforeRun: number;
-  monthlyUsableCallLimit: number;
+  dailyCallsUsedBeforeRun: number;
+  dailyUsableCallLimit: number;
   rowsFetched: number;
   uniqueRowsFetched: number;
+  itemDetailsFetched: number;
+  itemDetailsFailed: number;
+  itemDetailsSkipped: number;
+  staleListingsVerified: number;
   listingsOutsideRadius: number;
   listingsNormalized: number;
   listingsSkipped: number;
@@ -98,6 +115,9 @@ export type EbaySyncResult = {
     limit: number;
     maxPagesPerSync: number;
     localPickupMaxPagesPerSync: number;
+    itemDetailMaxPerSync: number;
+    itemDetailConcurrency: number;
+    staleVerificationMaxPerSync: number;
     itemLocationCountry?: string;
     localDistanceOnly: boolean;
     localPickupOnly: boolean;
@@ -119,10 +139,14 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     dryRun: Boolean(options.dryRun),
     startedAt: startedAtIso,
     callsUsed: 0,
-    monthlyCallsUsedBeforeRun: 0,
-    monthlyUsableCallLimit: getMonthlyUsableCallLimit(config),
+    dailyCallsUsedBeforeRun: 0,
+    dailyUsableCallLimit: getDailyUsableCallLimit(config),
     rowsFetched: 0,
     uniqueRowsFetched: 0,
+    itemDetailsFetched: 0,
+    itemDetailsFailed: 0,
+    itemDetailsSkipped: 0,
+    staleListingsVerified: 0,
     listingsOutsideRadius: 0,
     listingsNormalized: 0,
     listingsSkipped: 0,
@@ -142,6 +166,9 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       limit: config.limit,
       maxPagesPerSync: config.maxPagesPerSync,
       localPickupMaxPagesPerSync: config.localPickupMaxPagesPerSync,
+      itemDetailMaxPerSync: config.itemDetailMaxPerSync,
+      itemDetailConcurrency: config.itemDetailConcurrency,
+      staleVerificationMaxPerSync: config.staleVerificationMaxPerSync,
       itemLocationCountry: config.itemLocationCountry,
       localDistanceOnly: config.localDistanceOnly,
       localPickupOnly: config.localPickupOnly,
@@ -177,16 +204,16 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     });
   }
 
-  const monthKey = startedAtIso.slice(0, 7);
-  const monthlyUsage = await getMonthlyCallsUsed(supabase, monthKey);
-  baseResult.monthlyCallsUsedBeforeRun = monthlyUsage.callsUsed;
-  warnings.push(...monthlyUsage.warnings);
+  const dayKey = startedAtIso.slice(0, 10);
+  const dailyUsage = await getDailyCallsUsed(supabase, dayKey);
+  baseResult.dailyCallsUsedBeforeRun = dailyUsage.callsUsed;
+  warnings.push(...dailyUsage.warnings);
 
-  if (monthlyUsage.callsUsed >= getMonthlyUsableCallLimit(config)) {
+  if (dailyUsage.callsUsed >= getDailyUsableCallLimit(config)) {
     return finishResult({
       ...baseResult,
       ok: false,
-      message: "eBay monthly safety limit reached. No request was made."
+      message: "eBay daily safety limit reached. No request was made."
     });
   }
 
@@ -199,7 +226,20 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     const searchResult = await fetchEbaySearchPayloads(config, token);
     callsAttempted += searchResult.callsUsed;
 
-    const rawRows = searchResult.rows;
+    const localRowsResult = filterEbayRowsForConfiguredLocalRadius(searchResult.rows, config);
+    const detailBudget = Math.max(
+      0,
+      getDailyUsableCallLimit(config) - dailyUsage.callsUsed - callsAttempted
+    );
+    const detailResult = await fetchEbayItemDetailsForRows({
+      rows: localRowsResult.rows,
+      config,
+      accessToken: token,
+      maxCalls: detailBudget
+    });
+    callsAttempted += detailResult.callsUsed;
+
+    const rawRows = detailResult.rows;
     const nowIso = new Date().toISOString();
     const normalizedResult = normalizeEbayRows(rawRows, config, nowIso);
     const normalized = normalizedResult.listings;
@@ -220,8 +260,14 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       seenListingIds: new Set(prepared.map((item) => item.listing.id)),
       fetchedListingCount: prepared.length,
       config,
-      now: new Date()
+      now: new Date(),
+      accessToken: token,
+      maxVerificationCalls: Math.max(
+        0,
+        getDailyUsableCallLimit(config) - dailyUsage.callsUsed - callsAttempted
+      )
     });
+    callsAttempted += archiveStats.callsUsed;
 
     const result = finishResult({
       ...baseResult,
@@ -229,10 +275,13 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       message: "eBay sync completed.",
       callsUsed: callsAttempted,
       rowsFetched: searchResult.rowsFetched,
-      uniqueRowsFetched: rawRows.length,
-      listingsOutsideRadius: normalizedResult.outsideRadius,
+      uniqueRowsFetched: searchResult.rows.length,
+      itemDetailsFetched: detailResult.detailsFetched,
+      itemDetailsFailed: detailResult.detailsFailed,
+      itemDetailsSkipped: detailResult.detailsSkipped,
+      listingsOutsideRadius: localRowsResult.outsideRadius + normalizedResult.outsideRadius,
       listingsNormalized: prepared.length,
-      listingsSkipped: Math.max(0, rawRows.length - prepared.length),
+      listingsSkipped: Math.max(0, searchResult.rows.length - prepared.length),
       listingsUpserted: writeStats.listingsUpserted,
       listingsCreated: prepared.filter((item) => !existingRows.has(item.listing.id)).length,
       listingsReactivated: prepared.filter((item) => {
@@ -241,6 +290,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
       }).length,
       mediaRowsInserted: writeStats.mediaRowsInserted,
       importRowsUpserted: writeStats.importRowsUpserted,
+      staleListingsVerified: archiveStats.verified,
       listingsArchived: archiveStats.archived,
       archiveSkippedReason: archiveStats.skippedReason,
       searchPasses: searchResult.searchPasses
@@ -249,7 +299,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     await recordSyncRun(supabase, {
       provider,
       status: "completed",
-      month_key: monthKey,
+      month_key: dayKey,
       started_at: startedAtIso,
       finished_at: result.finishedAt,
       calls_used: result.callsUsed,
@@ -265,9 +315,16 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
         limit: config.limit,
         maxPagesPerSync: config.maxPagesPerSync,
         localPickupMaxPagesPerSync: config.localPickupMaxPagesPerSync,
+        itemDetailMaxPerSync: config.itemDetailMaxPerSync,
+        itemDetailConcurrency: config.itemDetailConcurrency,
+        staleVerificationMaxPerSync: config.staleVerificationMaxPerSync,
         itemLocationCountry: config.itemLocationCountry,
         localDistanceOnly: config.localDistanceOnly,
         searchPasses: result.searchPasses,
+        itemDetailsFetched: result.itemDetailsFetched,
+        itemDetailsFailed: result.itemDetailsFailed,
+        itemDetailsSkipped: result.itemDetailsSkipped,
+        staleListingsVerified: result.staleListingsVerified,
         archiveSkippedReason: result.archiveSkippedReason,
         warnings
       })
@@ -286,7 +343,7 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
     await recordSyncRun(supabase, {
       provider,
       status: "failed",
-      month_key: monthKey,
+      month_key: dayKey,
       started_at: startedAtIso,
       finished_at: result.finishedAt,
       calls_used: result.callsUsed,
@@ -299,6 +356,9 @@ export async function syncEbayInventory(options: { dryRun?: boolean } = {}) {
         limit: config.limit,
         maxPagesPerSync: config.maxPagesPerSync,
         localPickupMaxPagesPerSync: config.localPickupMaxPagesPerSync,
+        itemDetailMaxPerSync: config.itemDetailMaxPerSync,
+        itemDetailConcurrency: config.itemDetailConcurrency,
+        staleVerificationMaxPerSync: config.staleVerificationMaxPerSync,
         itemLocationCountry: config.itemLocationCountry,
         localDistanceOnly: config.localDistanceOnly,
         warnings
@@ -328,6 +388,7 @@ function readEbaySyncConfig(): EbaySyncConfig {
     tokenUrl: process.env.EBAY_TOKEN_URL ?? defaultTokenUrl,
     searchUrl: process.env.EBAY_BROWSE_SEARCH_URL ?? defaultSearchUrl,
     scope: process.env.EBAY_OAUTH_SCOPE ?? defaultScope,
+    itemUrl: process.env.EBAY_ITEM_URL ?? defaultItemUrl,
     marketplaceId: process.env.EBAY_MARKETPLACE_ID ?? "EBAY_US",
     categoryId: process.env.EBAY_CATEGORY_ID ?? "6001",
     query: cleanOptional(process.env.EBAY_QUERY),
@@ -356,8 +417,21 @@ function readEbaySyncConfig(): EbaySyncConfig {
     maxMediaPerListing: clamp(readIntEnv("EBAY_MAX_MEDIA_PER_LISTING", 12), 1, 60),
     staleGraceHours: clamp(readIntEnv("EBAY_STALE_GRACE_HOURS", 72), 1, 720),
     archiveMinSeenListings: clamp(readIntEnv("EBAY_ARCHIVE_MIN_SEEN_LISTINGS", 5), 0, 200),
-    monthlyCallLimit: readIntEnv("EBAY_MONTHLY_CALL_LIMIT", 5000),
-    monthlySafetyBuffer: readIntEnv("EBAY_MONTHLY_SAFETY_BUFFER", 500)
+    itemDetailMaxPerSync: clamp(readPositiveIntEnv("EBAY_ITEM_DETAIL_MAX_PER_SYNC", 300), 0, 1000),
+    itemDetailConcurrency: clamp(readPositiveIntEnv("EBAY_ITEM_DETAIL_CONCURRENCY", 6), 1, 10),
+    staleVerificationMaxPerSync: clamp(
+      readPositiveIntEnv("EBAY_STALE_VERIFY_MAX_PER_SYNC", 50),
+      0,
+      1000
+    ),
+    dailyCallLimit: readPositiveIntEnv(
+      "EBAY_DAILY_CALL_LIMIT",
+      readPositiveIntEnv("EBAY_MONTHLY_CALL_LIMIT", 5000)
+    ),
+    dailySafetyBuffer: readPositiveIntEnv(
+      "EBAY_DAILY_SAFETY_BUFFER",
+      readPositiveIntEnv("EBAY_MONTHLY_SAFETY_BUFFER", 500)
+    )
   };
 }
 
@@ -475,12 +549,7 @@ function buildEbaySearchPlans(config: EbaySyncConfig): EbaySearchPlan[] {
 async function fetchEbaySearchPayload(config: EbaySyncConfig, accessToken: string, offset: number) {
   const url = buildEbaySearchUrl(config, offset);
   const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      "X-EBAY-C-MARKETPLACE-ID": config.marketplaceId,
-      "X-EBAY-C-ENDUSERCTX": `contextualLocation=country%3DUS%2Czip%3D${encodeURIComponent(config.pickupZip)}`
-    }
+    headers: buildEbayHeaders(config, accessToken)
   });
 
   if (!response.ok) {
@@ -517,6 +586,144 @@ function buildEbaySearchUrl(config: EbaySyncConfig, offset = config.offset) {
   }
 
   return url;
+}
+
+function filterEbayRowsForConfiguredLocalRadius(rows: EbayRow[], config: EbaySyncConfig) {
+  const localRows: EbayRow[] = [];
+  let outsideRadius = 0;
+
+  for (const row of rows) {
+    if (isWithinConfiguredLocalRadius(row, config)) {
+      localRows.push(row);
+    } else {
+      outsideRadius += 1;
+    }
+  }
+
+  return { rows: localRows, outsideRadius };
+}
+
+async function fetchEbayItemDetailsForRows({
+  rows,
+  config,
+  accessToken,
+  maxCalls
+}: {
+  rows: EbayRow[];
+  config: EbaySyncConfig;
+  accessToken: string;
+  maxCalls: number;
+}): Promise<EbayDetailResult> {
+  const detailLimit = Math.max(0, Math.min(rows.length, config.itemDetailMaxPerSync, maxCalls));
+  const rowsForDetail = rows.slice(0, detailLimit);
+  const skippedRows = rows.slice(detailLimit);
+  const detailResults = await mapWithConcurrency(rowsForDetail, config.itemDetailConcurrency, async (row) => {
+    const detail = await fetchEbayItemDetail(row, config, accessToken);
+    if (detail) {
+      return {
+        row: mergeEbaySummaryAndDetail(row, detail),
+        fetched: true
+      };
+    }
+
+    return {
+      row,
+      fetched: false
+    };
+  });
+
+  return {
+    rows: [...detailResults.map((result) => result.row), ...skippedRows],
+    callsUsed: detailLimit,
+    detailsFetched: detailResults.filter((result) => result.fetched).length,
+    detailsFailed: detailResults.filter((result) => !result.fetched).length,
+    detailsSkipped: Math.max(0, rows.length - detailLimit)
+  };
+}
+
+async function fetchEbayItemDetail(row: EbayRow, config: EbaySyncConfig, accessToken: string) {
+  const detailUrl = getString(row, "itemHref") ?? buildEbayItemUrl(config, getEbayRowId(row));
+  if (!detailUrl) return undefined;
+
+  const response = await fetch(detailUrl, {
+    headers: buildEbayHeaders(config, accessToken)
+  });
+
+  if (response.status === 404) return undefined;
+
+  if (!response.ok) {
+    throw new Error(`eBay item detail request failed (${response.status}): ${await response.text()}`);
+  }
+
+  return (await response.json()) as EbayRow;
+}
+
+async function fetchEbayItemDetailForListingRow(
+  row: Pick<ListingRow, "provider_listing_id" | "external_listing_url">,
+  config: EbaySyncConfig,
+  accessToken: string
+) {
+  const detailUrl = buildEbayItemUrl(config, row.provider_listing_id ?? undefined);
+  if (!detailUrl) return undefined;
+
+  const response = await fetch(detailUrl, {
+    headers: buildEbayHeaders(config, accessToken)
+  });
+
+  if (response.status === 404 || response.status === 410) return undefined;
+
+  if (!response.ok) {
+    throw new Error(`eBay stale item verification failed (${response.status}): ${await response.text()}`);
+  }
+
+  return (await response.json()) as EbayRow;
+}
+
+function isEndedEbayItem(row: EbayRow, now: Date) {
+  const endDate = getString(row, "itemEndDate");
+  if (!endDate) return false;
+
+  const parsed = Date.parse(endDate);
+  return Number.isFinite(parsed) && parsed <= now.getTime();
+}
+
+function mergeEbaySummaryAndDetail(summary: EbayRow, detail: EbayRow) {
+  return {
+    ...summary,
+    ...detail,
+    itemId: getString(summary, "itemId") ?? getString(detail, "itemId"),
+    legacyItemId: getString(summary, "legacyItemId") ?? getString(detail, "legacyItemId"),
+    itemHref: getString(summary, "itemHref") ?? getString(detail, "itemHref"),
+    itemLocation: getObject(summary, "itemLocation") ?? getObject(detail, "itemLocation"),
+    distanceFromPickupLocation:
+      getObject(summary, "distanceFromPickupLocation") ??
+      getObject(detail, "distanceFromPickupLocation"),
+    buyingOptions:
+      readStringArray(summary.buyingOptions).length > 0 ? summary.buyingOptions : detail.buyingOptions,
+    image: getObject(summary, "image") ?? getObject(detail, "image"),
+    additionalImages:
+      Array.isArray(summary.additionalImages) && summary.additionalImages.length > 0
+        ? summary.additionalImages
+        : detail.additionalImages,
+    thumbnailImages:
+      Array.isArray(summary.thumbnailImages) && summary.thumbnailImages.length > 0
+        ? summary.thumbnailImages
+        : detail.thumbnailImages
+  };
+}
+
+function buildEbayItemUrl(config: EbaySyncConfig, itemId: string | undefined) {
+  if (!itemId) return undefined;
+  return `${config.itemUrl.replace(/\/$/, "")}/${encodeURIComponent(itemId)}`;
+}
+
+function buildEbayHeaders(config: EbaySyncConfig, accessToken: string) {
+  return {
+    Accept: "application/json",
+    Authorization: `Bearer ${accessToken}`,
+    "X-EBAY-C-MARKETPLACE-ID": config.marketplaceId,
+    "X-EBAY-C-ENDUSERCTX": `contextualLocation=country%3DUS%2Czip%3D${encodeURIComponent(config.pickupZip)}`
+  };
 }
 
 function normalizeEbayRows(rows: EbayRow[], config: EbaySyncConfig, nowIso: string) {
@@ -566,7 +773,17 @@ function normalizeEbayListing(row: EbayRow, config: EbaySyncConfig, nowIso: stri
   const providerListingId = getString(row, "itemId") ?? getString(row, "legacyItemId");
   const url = getString(row, "itemAffiliateWebUrl") ?? getString(row, "itemWebUrl");
   const price = getMoneyValue(getObject(row, "price")) ?? getMoneyValue(getObject(row, "currentBidPrice")) ?? 0;
-  const mileage = getAspectNumber(row, "Mileage") ?? parseMileage(`${title} ${shortDescription}`) ?? 0;
+  const year = getAspectNumber(row, "Year") ?? parsed.year;
+  const make = getAspectValue(row, "Make") ?? parsed.make;
+  const model = getAspectValue(row, "Model") ?? parsed.model;
+  const trim = getAspectValue(row, "Trim") ?? getAspectValue(row, "Submodel") ?? parsed.trim;
+  const mileage =
+    getAspectNumber(row, "Mileage") ??
+    getAspectNumber(row, "Odometer") ??
+    getAspectNumber(row, "Miles") ??
+    parseMileage(`${title} ${shortDescription}`) ??
+    0;
+  const vin = getAspectValue(row, "VIN (Vehicle Identification Number)") ?? getAspectValue(row, "VIN");
   const city = getString(itemLocation, "city");
   const state = getString(itemLocation, "stateOrProvince");
   const location =
@@ -592,10 +809,10 @@ function normalizeEbayListing(row: EbayRow, config: EbaySyncConfig, nowIso: stri
     externalListingUrl: url,
     importedAt: nowIso,
     lastSeenAt: nowIso,
-    year: parsed.year,
-    make: parsed.make,
-    model: parsed.model,
-    trim: parsed.trim,
+    year,
+    make,
+    model,
+    trim,
     price,
     mileage,
     location,
@@ -603,13 +820,14 @@ function normalizeEbayListing(row: EbayRow, config: EbaySyncConfig, nowIso: stri
     sellerType: inferSellerType(seller),
     sellerName: getString(seller, "username") ?? "eBay seller",
     contactUrl: url,
+    vin,
     listingTitle: title,
     listingDescription: shortDescription || title,
     imageUrls,
-    aiHook: buildAiHook(parsed.make, parsed.model, price, mileage, buyingOptions, condition),
+    aiHook: buildAiHook(make, model, price, mileage, buyingOptions, condition),
     whyItMadeTheFeed:
       "Authorized eBay Motors listing with price, seller, source URL, and media that can add auction and private-party variety to the feed.",
-    redFlags: buildRedFlags(parsed.year, mileage, buyingOptions, condition),
+    redFlags: buildRedFlags(year, mileage, buyingOptions, condition),
     sellerQuestions: [
       "Confirm the vehicle is still available and the listing terms have not changed.",
       "Verify title, VIN, mileage, and pickup or shipping logistics before bidding or buying.",
@@ -623,7 +841,7 @@ function normalizeEbayListing(row: EbayRow, config: EbaySyncConfig, nowIso: stri
       "Confirm title and pickup terms",
       "Verify VIN and mileage before payment"
     ],
-    tags: buildEbayTags(parsed.make, parsed.model, price, mileage, parsed.year, buyingOptions, condition),
+    tags: buildEbayTags(make, model, price, mileage, year, buyingOptions, condition),
     sourceMode: "ebay",
     rawProviderSummary
   };
@@ -728,45 +946,58 @@ async function archiveStaleEbayListings({
   seenListingIds,
   fetchedListingCount,
   config,
-  now
+  now,
+  accessToken,
+  maxVerificationCalls
 }: {
   supabase: SupabaseAdmin;
   seenListingIds: Set<string>;
   fetchedListingCount: number;
   config: EbaySyncConfig;
   now: Date;
+  accessToken: string;
+  maxVerificationCalls: number;
 }) {
   if (config.query) {
     return {
       archived: 0,
+      verified: 0,
+      callsUsed: 0,
       skippedReason: "Archiving skipped because this eBay sync uses a narrowed keyword query."
-    };
-  }
-
-  if (config.localPickupOnly) {
-    return {
-      archived: 0,
-      skippedReason: "Archiving skipped because this eBay sync is limited to local-pickup inventory."
-    };
-  }
-
-  if (config.localDistanceOnly) {
-    return {
-      archived: 0,
-      skippedReason: "Archiving skipped because this eBay sync is limited to local-distance inventory."
     };
   }
 
   if (fetchedListingCount < config.archiveMinSeenListings) {
     return {
       archived: 0,
+      verified: 0,
+      callsUsed: 0,
       skippedReason: `Archiving skipped because only ${fetchedListingCount} usable eBay listing(s) were seen.`
     };
   }
 
   const cutoffIso = new Date(now.getTime() - config.staleGraceHours * 60 * 60 * 1000).toISOString();
   const staleRows = await fetchStaleEbayRows(supabase, cutoffIso);
-  const archiveIds = staleRows.filter((row) => !seenListingIds.has(row.id)).map((row) => row.id);
+  const unseenRows = staleRows.filter((row) => !seenListingIds.has(row.id));
+  const verificationLimit = Math.max(
+    0,
+    Math.min(unseenRows.length, config.staleVerificationMaxPerSync, maxVerificationCalls)
+  );
+  const rowsToVerify = unseenRows.slice(0, verificationLimit);
+  const verificationResults = await mapWithConcurrency(rowsToVerify, config.itemDetailConcurrency, async (row) => {
+    const detail = await fetchEbayItemDetailForListingRow(row, config, accessToken);
+    if (!detail || isEndedEbayItem(detail, now)) {
+      return { id: row.id, archive: true };
+    }
+
+    return { id: row.id, archive: false };
+  });
+  const archiveIds = verificationResults
+    .filter((result) => result.archive)
+    .map((result) => result.id);
+  const keepIds = verificationResults
+    .filter((result) => !result.archive)
+    .map((result) => result.id);
 
   let archived = 0;
   for (const chunk of chunkArray(archiveIds, 100)) {
@@ -783,14 +1014,36 @@ async function archiveStaleEbayListings({
     archived += data?.length ?? 0;
   }
 
-  return { archived };
+  for (const chunk of chunkArray(keepIds, 100)) {
+    const { error } = await supabase
+      .from("listings")
+      .update({ last_seen_at: now.toISOString() })
+      .in("id", chunk);
+
+    if (error) {
+      throw new Error(`Could not refresh verified eBay listings: ${error.message}`);
+    }
+  }
+
+  return {
+    archived,
+    verified: rowsToVerify.length,
+    callsUsed: rowsToVerify.length,
+    skippedReason:
+      unseenRows.length > rowsToVerify.length
+        ? `Stale verification capped at ${rowsToVerify.length}/${unseenRows.length} unseen eBay listing(s).`
+        : undefined
+  };
 }
 
 async function fetchStaleEbayRows(supabase: SupabaseAdmin, cutoffIso: string) {
-  const rows = new Map<string, Pick<ListingRow, "id" | "last_seen_at">>();
+  const rows = new Map<
+    string,
+    Pick<ListingRow, "id" | "last_seen_at" | "provider_listing_id" | "external_listing_url">
+  >();
   const nullResult = await supabase
     .from("listings")
-    .select("id,last_seen_at")
+    .select("id,last_seen_at,provider_listing_id,external_listing_url")
     .eq("source_mode", "ebay")
     .eq("status", "active")
     .is("last_seen_at", null)
@@ -804,7 +1057,7 @@ async function fetchStaleEbayRows(supabase: SupabaseAdmin, cutoffIso: string) {
 
   const oldResult = await supabase
     .from("listings")
-    .select("id,last_seen_at")
+    .select("id,last_seen_at,provider_listing_id,external_listing_url")
     .eq("source_mode", "ebay")
     .eq("status", "active")
     .lt("last_seen_at", cutoffIso)
@@ -818,13 +1071,13 @@ async function fetchStaleEbayRows(supabase: SupabaseAdmin, cutoffIso: string) {
   return [...rows.values()];
 }
 
-async function getMonthlyCallsUsed(supabase: SupabaseAdmin, monthKey: string) {
+async function getDailyCallsUsed(supabase: SupabaseAdmin, dayKey: string) {
   const warnings: string[] = [];
   const { data, error } = await supabase
     .from("provider_sync_runs")
     .select("calls_used")
     .eq("provider", provider)
-    .eq("month_key", monthKey);
+    .eq("month_key", dayKey);
 
   if (error) {
     warnings.push(`Sync-run ledger unavailable: ${error.message}`);
@@ -844,8 +1097,8 @@ async function recordSyncRun(supabase: SupabaseAdmin, row: ProviderSyncRunInsert
   }
 }
 
-function getMonthlyUsableCallLimit(config: EbaySyncConfig) {
-  return Math.max(0, config.monthlyCallLimit - config.monthlySafetyBuffer);
+function getDailyUsableCallLimit(config: EbaySyncConfig) {
+  return Math.max(0, config.dailyCallLimit - config.dailySafetyBuffer);
 }
 
 function isUsableEbayListing(listing: CarListing) {
@@ -856,6 +1109,7 @@ function isUsableEbayListing(listing: CarListing) {
       listing.model &&
       listing.model !== "Vehicle" &&
       listing.price > 0 &&
+      listing.mileage > 0 &&
       listing.location &&
       listing.contactUrl &&
       listing.mediaItems.some((media) => media.url && !media.url.startsWith("/cars/"))
@@ -1142,6 +1396,8 @@ function summarizeRawProviderRow(
     itemAffiliateWebUrl: getString(row, "itemAffiliateWebUrl"),
     itemCreationDate: getString(row, "itemCreationDate") ?? getString(row, "itemOriginDate"),
     itemEndDate: getString(row, "itemEndDate"),
+    mileage: getAspectNumber(row, "Mileage"),
+    vin: getAspectValue(row, "VIN (Vehicle Identification Number)") ?? getAspectValue(row, "VIN"),
     sellerName: getString(seller, "username"),
     sellerFeedbackPercentage: getString(seller, "feedbackPercentage"),
     sellerFeedbackScore: getNumber(seller, "feedbackScore"),
@@ -1196,6 +1452,28 @@ function chunkArray<T>(items: T[], size: number) {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 function readIntEnv(name: string, fallback: number) {

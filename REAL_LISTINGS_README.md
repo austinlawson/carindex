@@ -136,7 +136,7 @@ Manual sync:
 curl -X POST -H "Authorization: Bearer $CRON_SECRET" "https://your-domain.com/api/marketcheck/sync"
 ```
 
-The sync writes operational history to `public.provider_sync_runs`. Apply `supabase/migrations/006_provider_sync_runs.sql` before relying on the monthly call guard in production.
+The sync writes operational history to `public.provider_sync_runs`. Apply `supabase/migrations/006_provider_sync_runs.sql` before relying on provider call guards in production.
 
 ## eBay Motors Production Sync
 
@@ -149,9 +149,9 @@ POST /api/ebay/sync
 
 It uses the official eBay Browse API, not scraping. The sync searches eBay Motors category `6001` by default, normalizes usable vehicle listings into `source_mode='ebay'`, refreshes media rows, and archives stale eBay rows after `EBAY_STALE_GRACE_HOURS`. User-uploaded and MarketCheck listings are never touched by this sync.
 
-Vercel cron runs this endpoint daily at `09:20 UTC` through `vercel.json`, twenty minutes after the MarketCheck sync.
+Vercel cron runs this endpoint every two hours at minute `20` through `vercel.json`. This requires a Vercel plan that allows sub-daily cron schedules; Hobby projects must keep this as a daily cron.
 
-The default eBay sync uses one token request, a distance-sorted local pickup radius pass for active local coverage, and up to ten 200-row broad Browse API pages for newly listed local discoveries. That keeps the daily cron run low-volume while avoiding the false assumption that the newest nationwide eBay Motors rows represent the local market.
+The default eBay sync uses one token request, a distance-sorted local pickup radius pass for active local coverage, up to ten 200-row broad Browse API pages for newly listed local discoveries, and item-detail calls for local candidates so mileage is populated from eBay item aspects. At the default every-two-hours cadence this stays under the safety-adjusted 4,500-call/day eBay budget.
 
 Required production environment variables:
 
@@ -164,6 +164,9 @@ EBAY_SORT=newlyListed
 EBAY_ROWS=200
 EBAY_MAX_PAGES_PER_SYNC=10
 EBAY_LOCAL_PICKUP_MAX_PAGES_PER_SYNC=2
+EBAY_ITEM_DETAIL_MAX_PER_SYNC=300
+EBAY_ITEM_DETAIL_CONCURRENCY=6
+EBAY_STALE_VERIFY_MAX_PER_SYNC=50
 EBAY_BUYING_OPTIONS=FIXED_PRICE,AUCTION,BEST_OFFER,CLASSIFIED_AD
 EBAY_INCLUDE_CLASSIFIED_ADS=true
 EBAY_ITEM_LOCATION_COUNTRY=US
@@ -174,8 +177,8 @@ EBAY_PICKUP_RADIUS=100
 EBAY_MAX_MEDIA_PER_LISTING=12
 EBAY_STALE_GRACE_HOURS=72
 EBAY_ARCHIVE_MIN_SEEN_LISTINGS=5
-EBAY_MONTHLY_CALL_LIMIT=5000
-EBAY_MONTHLY_SAFETY_BUFFER=500
+EBAY_DAILY_CALL_LIMIT=5000
+EBAY_DAILY_SAFETY_BUFFER=500
 CRON_SECRET=your_random_secret
 ```
 
@@ -186,6 +189,8 @@ Optional filters:
 - `EBAY_QUERY`: keyword filter. Leave empty for broad category search.
 - `EBAY_ITEM_LOCATION_COUNTRY=US`: keeps broad non-pickup searches to U.S.-located listings.
 - `EBAY_INCLUDE_CLASSIFIED_ADS=true`: adds `CLASSIFIED_AD` to buying options, which matters for eBay Motors dealer listings.
+- `EBAY_ITEM_DETAIL_MAX_PER_SYNC`: max local candidates enriched through eBay item detail calls per run. Detail calls are what populate mileage.
+- `EBAY_STALE_VERIFY_MAX_PER_SYNC`: max stale unseen active eBay listings checked through item detail before archiving.
 - `EBAY_LOCAL_DISTANCE_ONLY=true`: imports only rows where eBay returns a distance within `EBAY_PICKUP_RADIUS`. This is separate from local-pickup eligibility.
 - `EBAY_LOCAL_PICKUP_MAX_PAGES_PER_SYNC`: page cap for the distance-sorted local pickup pass.
 - `EBAY_LOCAL_PICKUP_ONLY=true`: narrows to listings that explicitly offer local pickup near `EBAY_PICKUP_ZIP`. Leave this false to avoid excluding sellers who may still allow pickup but did not mark the eBay listing that way.
@@ -256,7 +261,7 @@ npm run cache:clear-listings -- --all
 The local ledger tracks:
 
 - provider
-- month key
+- period key (`YYYY-MM` for MarketCheck, `YYYY-MM-DD` for eBay)
 - calls used
 - last call time
 - last run time
@@ -266,7 +271,7 @@ Before a provider request, the sync checks:
 
 ```text
 callsUsed < MARKETCHECK_MONTHLY_CALL_LIMIT - MARKETCHECK_MONTHLY_SAFETY_BUFFER
-callsUsed < EBAY_MONTHLY_CALL_LIMIT - EBAY_MONTHLY_SAFETY_BUFFER
+callsUsed < EBAY_DAILY_CALL_LIMIT - EBAY_DAILY_SAFETY_BUFFER
 ```
 
 The ledger increments only after an actual HTTP request is made, and it is saved after each request.
