@@ -306,12 +306,13 @@ async function fetchMarketCheckRows(
   let totalFound: number | undefined;
   let nextStart = 0;
   let callsUsed = 0;
+  let rowsPerPage = config.rows;
   let resultSetComplete = false;
 
   while (callsUsed < maxCalls && rows.length < config.targetCount) {
     onCallAttempt();
     callsUsed += 1;
-    const payload = await fetchMarketCheckPayload(config, nextStart);
+    const payload = await fetchMarketCheckPayload(config, nextStart, rowsPerPage);
     const pageRows = extractListings(payload);
     totalFound = totalFound ?? getMarketCheckTotalFound(payload);
 
@@ -322,6 +323,10 @@ async function fetchMarketCheckRows(
 
     rows.push(...pageRows);
     nextStart += pageRows.length;
+
+    if (pageRows.length < rowsPerPage && totalFound !== undefined && nextStart < totalFound) {
+      rowsPerPage = pageRows.length;
+    }
 
     if ((totalFound !== undefined && nextStart >= totalFound) || pageRows.length < 1) {
       resultSetComplete = true;
@@ -338,8 +343,8 @@ async function fetchMarketCheckRows(
   };
 }
 
-async function fetchMarketCheckPayload(config: MarketCheckSyncConfig, start: number) {
-  const url = buildMarketCheckUrl(config, start);
+async function fetchMarketCheckPayload(config: MarketCheckSyncConfig, start: number, rows: number) {
+  const url = buildMarketCheckUrl(config, start, rows);
   const response = await fetch(url, {
     headers: {
       accept: "application/json"
@@ -353,12 +358,12 @@ async function fetchMarketCheckPayload(config: MarketCheckSyncConfig, start: num
   return (await response.json()) as Record<string, unknown>;
 }
 
-function buildMarketCheckUrl(config: MarketCheckSyncConfig, start: number) {
+function buildMarketCheckUrl(config: MarketCheckSyncConfig, start: number, rows: number) {
   const url = new URL(config.baseUrl);
   url.searchParams.set("api_key", config.apiKey ?? "");
   url.searchParams.set("zip", config.zip);
   url.searchParams.set("radius", String(config.radius));
-  url.searchParams.set("rows", String(config.rows));
+  url.searchParams.set("rows", String(rows));
   url.searchParams.set("start", String(start));
   url.searchParams.set("car_type", config.carType);
 

@@ -161,6 +161,7 @@ async function fetchInventory(
 ) {
   const rows: Record<string, unknown>[] = [];
   let start = 0;
+  let rowsPerPage = config.rows;
 
   while (rows.length < config.targetCount) {
     const canCall = ensureCallBudget(ledgerEntry, stats.callsMade);
@@ -169,7 +170,7 @@ async function fetchInventory(
       break;
     }
 
-    const url = buildMarketCheckUrl(radius, start);
+    const url = buildMarketCheckUrl(radius, start, rowsPerPage);
     const response = await fetch(url, {
       headers: {
         accept: "application/json"
@@ -179,7 +180,7 @@ async function fetchInventory(
     stats.callsMade += 1;
     ledgerEntry.callsUsed += 1;
     ledgerEntry.lastCallAt = new Date().toISOString();
-    ledgerEntry.notes = `Last request radius=${radius}, rows=${config.rows}, start=${start}, zip=${config.zip}`;
+    ledgerEntry.notes = `Last request radius=${radius}, rows=${rowsPerPage}, start=${start}, zip=${config.zip}`;
     saveJson(ledgerPath, ledger);
 
     if (!response.ok) {
@@ -199,6 +200,10 @@ async function fetchInventory(
     rows.push(...pageRows);
     start += pageRows.length;
 
+    if (pageRows.length < rowsPerPage && totalFound !== undefined && start < totalFound) {
+      rowsPerPage = pageRows.length;
+    }
+
     if (totalFound !== undefined && start >= totalFound) {
       break;
     }
@@ -207,12 +212,12 @@ async function fetchInventory(
   return rows;
 }
 
-function buildMarketCheckUrl(radius: number, start: number) {
+function buildMarketCheckUrl(radius: number, start: number, rows: number) {
   const url = new URL(config.baseUrl);
   url.searchParams.set("api_key", config.apiKey ?? "");
   url.searchParams.set("zip", config.zip);
   url.searchParams.set("radius", String(radius));
-  url.searchParams.set("rows", String(config.rows));
+  url.searchParams.set("rows", String(rows));
   url.searchParams.set("start", String(start));
   url.searchParams.set("car_type", config.carType);
 
