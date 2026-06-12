@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Bookmark,
+  ExternalLink,
   HandCoins,
   MapPin,
   PhoneCall,
@@ -17,6 +18,7 @@ import { ShareListingSheet } from "@/components/share-listing-sheet";
 import type { CarListing } from "@/data/listings";
 import { useAiVoiceTake } from "@/hooks/use-ai-voice-take";
 import {
+  getContactActionLabel,
   getContactHref,
   getListingNotes,
   getLocationLabel,
@@ -65,6 +67,15 @@ export function ListingCard({
   });
   const contactHref = getContactHref(listing);
   const contactIsExternal = contactHref?.startsWith("http");
+  const contactIsEmail = contactHref?.startsWith("mailto:");
+  const contactActionLabel = getContactActionLabel(listing);
+  const contactActionIcon = contactIsExternal ? (
+    <ExternalLink className="h-5 w-5" />
+  ) : contactIsEmail ? (
+    <Send className="h-5 w-5" />
+  ) : (
+    <PhoneCall className="h-5 w-5" />
+  );
   const sellerLabel = getSellerDisplayLabel(listing);
   const listingNotes = getListingNotes(listing);
   const confidenceRead = getListingConfidence(listing);
@@ -150,10 +161,10 @@ export function ListingCard({
             />
           ) : contactHref ? (
             <ReelActionLink
-              label="Contact"
+              label={contactActionLabel}
               href={contactHref}
               external={contactIsExternal}
-              icon={<PhoneCall className="h-5 w-5" />}
+              icon={contactActionIcon}
             />
           ) : (
             <ReelAction

@@ -56,6 +56,12 @@ export function getShortLocationLabel(listing: CarListing) {
 }
 
 export function getContactHref(listing: CarListing) {
+  const listingUrl = getListingUrl(listing);
+
+  if (shouldPreferListingUrl(listing) && listingUrl) {
+    return listingUrl;
+  }
+
   if (listing.sellerPhone) {
     return `tel:${listing.sellerPhone.replace(/[^\d+]/g, "")}`;
   }
@@ -64,19 +70,30 @@ export function getContactHref(listing: CarListing) {
     return `mailto:${listing.sellerEmail}`;
   }
 
-  return listing.contactUrl ?? listing.externalListingUrl ?? listing.sourceUrl;
+  return listingUrl;
 }
 
 export function getContactLabel(listing: CarListing) {
   const contactNoun = listing.sellerType === "Dealer" ? "Dealer" : "Seller";
+  const listingUrl = getListingUrl(listing);
+
+  if (shouldPreferListingUrl(listing) && listingUrl) {
+    return getListingUrlLabel(listing);
+  }
+
   if (listing.sellerPhone) return `Call ${contactNoun}`;
   if (listing.sellerEmail) return `Email ${contactNoun}`;
-  if (listing.sourceMode === "ebay") return "View on eBay";
+  if (listingUrl) return getListingUrlLabel(listing);
   if (listing.sellerType === "Dealer") return "Contact Dealer";
   if (listing.sourceMode && listing.sourceMode !== "user" && listing.sourceMode !== "mock") {
     return `Contact ${contactNoun}`;
   }
   return `Contact ${contactNoun}`;
+}
+
+export function getContactActionLabel(listing: CarListing) {
+  const listingUrl = getListingUrl(listing);
+  return listingUrl && shouldPreferListingUrl(listing) ? "Listing" : "Contact";
 }
 
 export function getListingNotes(listing: CarListing) {
@@ -104,6 +121,26 @@ export function getListingNotes(listing: CarListing) {
 
 function isLikelySearchRadiusFallback(listing: CarListing) {
   return listing.sourceMode === "marketcheck" && searchRadiusFallbacks.has(Math.round(listing.distance));
+}
+
+function shouldPreferListingUrl(listing: CarListing) {
+  return Boolean(
+    listing.sourceMode &&
+      listing.sourceMode !== "user" &&
+      listing.sourceMode !== "mock"
+  );
+}
+
+function getListingUrl(listing: CarListing) {
+  return listing.contactUrl ?? listing.externalListingUrl ?? listing.sourceUrl;
+}
+
+function getListingUrlLabel(listing: CarListing) {
+  if (listing.sourceMode === "ebay") return "View on eBay";
+  if (listing.sourceMode === "marketcheck" && listing.sellerType === "Dealer") {
+    return "View Dealer Listing";
+  }
+  return "View Listing";
 }
 
 function readRawString(listing: CarListing, key: string) {

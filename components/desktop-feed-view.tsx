@@ -5,6 +5,7 @@ import type { UIEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
+  ExternalLink,
   HandCoins,
   MapPin,
   MessageCircle,
@@ -22,6 +23,7 @@ import { useAiVoiceTake } from "@/hooks/use-ai-voice-take";
 import { formatCurrency, formatMileage } from "@/lib/format";
 import { getListingConfidence } from "@/lib/listing-confidence";
 import {
+  getContactActionLabel,
   getContactHref,
   getLocationLabel,
   getSellerDisplayLabel
@@ -252,6 +254,15 @@ function DesktopFeedPost({
     listing.mediaItems.some((item) => item.type === "video");
   const contactHref = getContactHref(listing);
   const contactIsExternal = contactHref?.startsWith("http");
+  const contactIsEmail = contactHref?.startsWith("mailto:");
+  const contactActionLabel = getContactActionLabel(listing);
+  const contactActionIcon = contactIsExternal ? (
+    <ExternalLink className="h-5 w-5" />
+  ) : contactIsEmail ? (
+    <Send className="h-5 w-5" />
+  ) : (
+    <PhoneCall className="h-5 w-5" />
+  );
   const offerEnabled = canMakeOffer(listing, currentUserId);
   const shouldPrepareAiVoice = isActive || mediaPreloadMode === "auto";
   const { aiVoice, isAiVoiceEligible, isAiVoiceLoading } = useAiVoiceTake(listing, {
@@ -391,10 +402,10 @@ function DesktopFeedPost({
               />
             ) : contactHref ? (
               <DesktopReelActionLink
-                label="Contact"
+                label={contactActionLabel}
                 href={contactHref}
                 external={contactIsExternal}
-                icon={<PhoneCall className="h-5 w-5" />}
+                icon={contactActionIcon}
               />
             ) : (
               <DesktopReelAction
@@ -473,6 +484,7 @@ function DesktopInsightPanel({
 }) {
   const contactHref = getContactHref(listing);
   const contactIsExternal = contactHref?.startsWith("http");
+  const contactActionLabel = getContactActionLabel(listing);
   const offerEnabled = canMakeOffer(listing, currentUserId);
   const confidenceRead = getListingConfidence(listing);
 
@@ -535,7 +547,7 @@ function DesktopInsightPanel({
             rel={contactIsExternal ? "noreferrer" : undefined}
             className="rounded-full bg-white/[0.06] px-3 py-2.5 text-center text-xs font-black text-white/68 transition hover:bg-white/[0.1] hover:text-white active:scale-[0.98]"
           >
-            Contact
+            {contactActionLabel}
           </a>
         ) : (
           <button
