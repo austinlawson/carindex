@@ -42,6 +42,7 @@ import {
   unlockAudioSession
 } from "@/lib/audio-session";
 import { rankFeedListings } from "@/lib/feed-ranking";
+import { dedupeCarListingsByVin } from "@/lib/listing-dedupe";
 import { getListingConfidence } from "@/lib/listing-confidence";
 import { getDisclosureSearchText } from "@/lib/listing-disclosures";
 import {
@@ -202,7 +203,7 @@ export function AppShell({
       }
     }
 
-    return rankFeedListings([...dedupedListings.values()]);
+    return rankFeedListings(dedupeCarListingsByVin([...dedupedListings.values()]));
   }, [feedListings, userListings]);
   const listingsById = useMemo(
     () => new Map(combinedListings.map((listing) => [listing.id, listing])),
