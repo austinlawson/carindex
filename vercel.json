@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/ebay/sync",
-      "schedule": "20 */2 * * *"
+      "schedule": "20 9 * * *"
     }
   ]
 }

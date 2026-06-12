@@ -149,9 +149,9 @@ POST /api/ebay/sync
 
 It uses the official eBay Browse API, not scraping. The sync searches eBay Motors category `6001` by default, normalizes usable vehicle listings into `source_mode='ebay'`, refreshes media rows, and archives stale eBay rows after `EBAY_STALE_GRACE_HOURS`. User-uploaded and MarketCheck listings are never touched by this sync.
 
-Vercel cron runs this endpoint every two hours at minute `20` through `vercel.json`. This requires a Vercel plan that allows sub-daily cron schedules; Hobby projects must keep this as a daily cron.
+Vercel cron runs this endpoint daily at `09:20 UTC` through `vercel.json`, twenty minutes after the MarketCheck sync.
 
-The default eBay sync uses one token request, a distance-sorted local pickup radius pass for active local coverage, up to ten 200-row broad Browse API pages for newly listed local discoveries, and item-detail calls for local candidates so mileage is populated from eBay item aspects. At the default every-two-hours cadence this stays under the safety-adjusted 4,500-call/day eBay budget.
+The default eBay sync uses one token request, a distance-sorted local pickup radius pass for active local coverage, up to ten 200-row broad Browse API pages for newly listed local discoveries, and item-detail calls for local candidates so mileage is populated from eBay item aspects. A daily run is enough for the local feed while leaving most of the safety-adjusted 4,500-call/day eBay budget available for manual refreshes or future experiments.
 
 Required production environment variables:
 
