@@ -17,6 +17,7 @@ import { ListingDisclosureBadges } from "@/components/listing-disclosure-badges"
 import { ShareListingSheet } from "@/components/share-listing-sheet";
 import type { CarListing } from "@/data/listings";
 import { useAiVoiceTake } from "@/hooks/use-ai-voice-take";
+import type { FeedInterestEventType } from "@/lib/feed-interest";
 import {
   getContactActionLabel,
   getContactHref,
@@ -43,6 +44,7 @@ export function ListingCard({
   onOpenOffer,
   onOpenGallery,
   onOpenDescription,
+  onTrackInterest,
   notificationAction
 }: {
   listing: CarListing;
@@ -57,6 +59,7 @@ export function ListingCard({
   onOpenOffer: () => void;
   onOpenGallery: (initialIndex: number) => void;
   onOpenDescription: () => void;
+  onTrackInterest?: (type: FeedInterestEventType, metadata?: Record<string, unknown>) => void;
   notificationAction?: ReactNode;
 }) {
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
@@ -101,7 +104,10 @@ export function ListingCard({
         isActive={isActive}
         preloadMode={mediaPreloadMode}
         chromeHidden={feedChromeHidden}
-        onOpenGallery={onOpenGallery}
+        onOpenGallery={(initialIndex) => {
+          onTrackInterest?.("gallery_open", { initialIndex });
+          onOpenGallery(initialIndex);
+        }}
         layout={isSellerReel ? "seller" : "market"}
       />
       <FeedChromeToggle
@@ -145,18 +151,29 @@ export function ListingCard({
           <ReelAction
             label="Save"
             active={isSaved}
-            onClick={onToggleSaved}
+            onClick={() => {
+              if (!isSaved) {
+                onTrackInterest?.("save");
+              }
+              onToggleSaved();
+            }}
             icon={<Bookmark className={`h-5 w-5 ${isSaved ? "fill-black" : ""}`} />}
           />
           <ReelAction
             label="Share"
-            onClick={() => setShareSheetOpen(true)}
+            onClick={() => {
+              onTrackInterest?.("share");
+              setShareSheetOpen(true);
+            }}
             icon={<Send className="h-5 w-5" />}
           />
           {offerEnabled ? (
             <ReelAction
               label="Offer"
-              onClick={onOpenOffer}
+              onClick={() => {
+                onTrackInterest?.("offer_open");
+                onOpenOffer();
+              }}
               icon={<HandCoins className="h-5 w-5" />}
             />
           ) : contactHref ? (
@@ -165,17 +182,24 @@ export function ListingCard({
               href={contactHref}
               external={contactIsExternal}
               icon={contactActionIcon}
+              onClick={() => onTrackInterest?.("contact_open")}
             />
           ) : (
             <ReelAction
               label="Contact"
-              onClick={onOpenAnalysis}
+              onClick={() => {
+                onTrackInterest?.("ai_open");
+                onOpenAnalysis();
+              }}
               icon={<PhoneCall className="h-5 w-5" />}
             />
           )}
           <ReelAction
             label="AI"
-            onClick={onOpenAnalysis}
+            onClick={() => {
+              onTrackInterest?.("ai_open");
+              onOpenAnalysis();
+            }}
             icon={<Sparkles className="h-5 w-5" />}
           />
           {notificationAction}
@@ -225,7 +249,10 @@ export function ListingCard({
           <button
             type="button"
             className="seller-note-line mt-2 flex max-w-full items-baseline gap-1.5 text-left transition active:scale-[0.99]"
-            onClick={onOpenDescription}
+            onClick={() => {
+              onTrackInterest?.("description_open");
+              onOpenDescription();
+            }}
             aria-label="Read seller description"
           >
             <span className="line-clamp-1 min-w-0 text-[12px] font-semibold leading-snug text-white/58 drop-shadow">
@@ -244,7 +271,10 @@ export function ListingCard({
               <button
                 type="button"
                 className="rounded-full border border-white/10 bg-black/24 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-white/56 backdrop-blur-xl transition hover:text-white active:scale-95"
-                onClick={onOpenDescription}
+                onClick={() => {
+                  onTrackInterest?.("description_open");
+                  onOpenDescription();
+                }}
               >
                 Read
               </button>
@@ -252,7 +282,10 @@ export function ListingCard({
             <button
               type="button"
               className="block text-left"
-              onClick={onOpenDescription}
+              onClick={() => {
+                onTrackInterest?.("description_open");
+                onOpenDescription();
+              }}
             >
               <p className="feed-notes-copy line-clamp-2 text-[13px] font-semibold leading-snug text-white/68 drop-shadow">
                 {listingNotes}
@@ -335,18 +368,21 @@ function ReelActionLink({
   icon,
   label,
   href,
-  external = false
+  external = false,
+  onClick
 }: {
   icon: React.ReactNode;
   label: string;
   href: string;
   external?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <a
       href={href}
       target={external ? "_blank" : undefined}
       rel={external ? "noreferrer" : undefined}
+      onClick={onClick}
       className="feed-action-button group flex w-16 flex-col items-center gap-1 text-[8.5px] font-black uppercase tracking-[0.03em] text-white transition"
       aria-label={label}
     >

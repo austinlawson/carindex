@@ -30,6 +30,7 @@ import { SavedView } from "@/components/saved-view";
 import { SellerInfoView } from "@/components/seller-info-view";
 import type { CarListing } from "@/data/listings";
 import { useAuth } from "@/hooks/use-auth";
+import { useFeedInterest } from "@/hooks/use-feed-interest";
 import { useOffers } from "@/hooks/use-offers";
 import { useSavedCars } from "@/hooks/use-saved-cars";
 import { useSellerProfile } from "@/hooks/use-seller-profile";
@@ -42,6 +43,10 @@ import {
   unlockAudioSession
 } from "@/lib/audio-session";
 import { rankFeedListings } from "@/lib/feed-ranking";
+import {
+  getReplayRankedListings,
+  type FeedInterestState
+} from "@/lib/feed-interest";
 import { dedupeCarListingsByVin } from "@/lib/listing-dedupe";
 import { getListingConfidence } from "@/lib/listing-confidence";
 import { getDisclosureSearchText } from "@/lib/listing-disclosures";
@@ -103,6 +108,11 @@ export function AppShell({
   } | null>(null);
   const { user, loading: authLoading, signOut, deleteAccount } = useAuth();
   const userId = user?.id;
+  const {
+    rankingInterestState,
+    markActiveListing,
+    trackListingEvent
+  } = useFeedInterest(userId);
   const { savedIds, isSaved, toggleSaved } = useSavedCars(userId);
   const {
     offers,
@@ -190,7 +200,7 @@ export function AppShell({
     setFeedEntryUnlocked(true);
   }, []);
 
-  const combinedListings = useMemo(() => {
+  const baseFeedListings = useMemo(() => {
     const dedupedListings = new Map<string, CarListing>();
 
     for (const listing of [...userListings, ...feedListings]) {
@@ -203,8 +213,22 @@ export function AppShell({
       }
     }
 
-    return rankFeedListings(dedupeCarListingsByVin([...dedupedListings.values()]));
+    return dedupeCarListingsByVin([...dedupedListings.values()]);
   }, [feedListings, userListings]);
+  const combinedListings = useMemo(
+    () => rankFeedListings(baseFeedListings, { interestState: rankingInterestState }),
+    [baseFeedListings, rankingInterestState]
+  );
+  const feedIsExhausted = backendFeedAvailable && !feedHasMore;
+  const loopedFeedListings = useMemo(
+    () =>
+      buildEndlessFeedListings(combinedListings, {
+        enabled: feedIsExhausted,
+        interestState: rankingInterestState
+      }),
+    [combinedListings, feedIsExhausted, rankingInterestState]
+  );
+  const desktopFeedBaseListings = desktopSearchQuery.trim() ? combinedListings : loopedFeedListings;
   const listingsById = useMemo(
     () => new Map(combinedListings.map((listing) => [listing.id, listing])),
     [combinedListings]
@@ -215,8 +239,8 @@ export function AppShell({
     [combinedListings, savedIds]
   );
   const desktopFeedListings = useMemo(
-    () => filterListingsBySearch(combinedListings, desktopSearchQuery),
-    [combinedListings, desktopSearchQuery]
+    () => filterListingsBySearch(desktopFeedBaseListings, desktopSearchQuery),
+    [desktopFeedBaseListings, desktopSearchQuery]
   );
   const latestOfferForSheet = useMemo(
     () => (offerListing ? getLatestOfferForListing(offers, offerListing.id) : null),
@@ -634,6 +658,10 @@ export function AppShell({
               onFeedChromeHiddenChange={updateFeedChromeHidden}
               currentUserId={userId}
               isSaved={isSaved}
+              onActiveListingChange={markActiveListing}
+              onListingInterest={(listing, type, metadata) =>
+                trackListingEvent(listing, type, { metadata })
+              }
               onOpenAnalysis={setAnalysisListing}
               onOpenOffer={(listing) => {
                 if (
@@ -697,13 +725,17 @@ export function AppShell({
         <main className="relative h-full overflow-hidden">
           {activeTab === "feed" ? (
             <FeedView
-              listings={combinedListings}
+              listings={loopedFeedListings}
               focusListingId={focusListingId}
               onFocusListingHandled={() => setFocusListingId(null)}
               feedChromeHidden={feedChromeHidden}
               onFeedChromeHiddenChange={updateFeedChromeHidden}
               currentUserId={userId}
               isSaved={isSaved}
+              onActiveListingChange={markActiveListing}
+              onListingInterest={(listing, type, metadata) =>
+                trackListingEvent(listing, type, { metadata })
+              }
               onOpenAnalysis={setAnalysisListing}
               onOpenOffer={(listing) => {
                 if (
@@ -1131,6 +1163,42 @@ function readModerationStatus(listing: CarListing) {
 
   const status = (moderation as { status?: unknown }).status;
   return typeof status === "string" ? status : "";
+}
+
+function buildEndlessFeedListings(
+  listings: CarListing[],
+  {
+    enabled,
+    interestState
+  }: {
+    enabled: boolean;
+    interestState?: FeedInterestState | null;
+  }
+) {
+  if (!enabled || listings.length === 0) {
+    return listings;
+  }
+
+  const minimumLength = Math.max(96, listings.length * 3);
+  const replayListings = getReplayRankedListings(listings, interestState);
+  const looped = [...listings];
+  let cycle = 0;
+
+  while (looped.length < minimumLength && replayListings.length > 0 && cycle < 6) {
+    const cycleListings =
+      cycle % 2 === 0
+        ? replayListings
+        : [...replayListings].sort((left, right) => {
+            const leftDistance = Number.isFinite(left.distance) ? left.distance : 10_000;
+            const rightDistance = Number.isFinite(right.distance) ? right.distance : 10_000;
+            return leftDistance - rightDistance;
+          });
+
+    looped.push(...cycleListings);
+    cycle += 1;
+  }
+
+  return looped;
 }
 
 const desktopNavItems: Array<{

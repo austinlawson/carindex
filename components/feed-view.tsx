@@ -5,6 +5,7 @@ import type { UIEvent } from "react";
 import { FeedVideoPreloader } from "@/components/feed-video-preloader";
 import { ListingCard } from "@/components/listing-card";
 import type { CarListing } from "@/data/listings";
+import type { FeedInterestEventType } from "@/lib/feed-interest";
 import { getFeedMediaPreloadMode } from "@/lib/feed-ranking";
 import {
   areVideoReadinessStatesEquivalent,
@@ -27,6 +28,8 @@ export function FeedView({
   onOpenOffer,
   onOpenGallery,
   onOpenDescription,
+  onActiveListingChange,
+  onListingInterest,
   notificationAction,
   onNearEnd,
   isLoadingMore = false
@@ -43,6 +46,12 @@ export function FeedView({
   onOpenOffer: (listing: CarListing) => void;
   onOpenGallery: (listing: CarListing, initialIndex: number) => void;
   onOpenDescription: (listing: CarListing) => void;
+  onActiveListingChange?: (listing: CarListing) => void;
+  onListingInterest?: (
+    listing: CarListing,
+    type: FeedInterestEventType,
+    metadata?: Record<string, unknown>
+  ) => void;
   notificationAction?: ReactNode;
   onNearEnd?: () => void;
   isLoadingMore?: boolean;
@@ -61,6 +70,13 @@ export function FeedView({
   useEffect(() => {
     setActiveIndex((current) => Math.max(0, Math.min(orderedListings.length - 1, current)));
   }, [orderedListings.length]);
+
+  useEffect(() => {
+    const activeListing = orderedListings[activeIndex];
+    if (activeListing) {
+      onActiveListingChange?.(activeListing);
+    }
+  }, [activeIndex, onActiveListingChange, orderedListings]);
 
   const preloadTargets = useMemo(
     () => collectFeedVideoPreloadTargets(orderedListings, activeIndex),
@@ -141,7 +157,7 @@ export function FeedView({
 
         return (
           <ListingCard
-            key={listing.id}
+            key={`${listing.id}:${index}`}
             listing={listing}
             currentUserId={currentUserId}
             isActive={index === activeIndex}
@@ -156,6 +172,7 @@ export function FeedView({
             onOpenOffer={() => onOpenOffer(listing)}
             onOpenGallery={(initialIndex) => onOpenGallery(listing, initialIndex)}
             onOpenDescription={() => onOpenDescription(listing)}
+            onTrackInterest={(type, metadata) => onListingInterest?.(listing, type, metadata)}
             notificationAction={index === activeIndex ? notificationAction : undefined}
           />
         );
@@ -170,6 +187,10 @@ export function FeedView({
 }
 
 function reconcileOrderedListings(current: CarListing[], next: CarListing[]) {
+  if (hasDuplicateListingIds(next)) {
+    return next;
+  }
+
   const nextById = new Map(next.map((listing) => [listing.id, listing]));
   const reconciled = current
     .map((listing) => nextById.get(listing.id))
@@ -178,6 +199,17 @@ function reconcileOrderedListings(current: CarListing[], next: CarListing[]) {
   const additions = next.filter((listing) => !reconciledIds.has(listing.id));
 
   return [...reconciled, ...additions];
+}
+
+function hasDuplicateListingIds(listings: CarListing[]) {
+  const ids = new Set<string>();
+
+  for (const listing of listings) {
+    if (ids.has(listing.id)) return true;
+    ids.add(listing.id);
+  }
+
+  return false;
 }
 
 function deferUnreadyVideoAtIndex({

@@ -237,6 +237,27 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["listing_imports"]["Row"]>;
         Relationships: [];
       };
+      listing_interest_events: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          anonymous_id: string | null;
+          listing_id: string;
+          event_type: string;
+          event_weight: number;
+          dwell_ms: number | null;
+          metadata: Json;
+          listing_snapshot: Json;
+          occurred_at: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["listing_interest_events"]["Row"]> & {
+          listing_id: string;
+          event_type: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["listing_interest_events"]["Row"]>;
+        Relationships: [];
+      };
       provider_sync_runs: {
         Row: {
           id: string;

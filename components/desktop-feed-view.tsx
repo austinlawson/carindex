@@ -34,11 +34,13 @@ import {
   areVideoReadinessStatesEquivalent,
   collectFeedVideoPreloadTargets,
   getListingPrimaryVideo,
+  getVideoDeferralSlots,
   type FeedVideoReadiness
 } from "@/lib/feed-video-readiness";
 import { canMakeOffer } from "@/lib/offers";
 import { shareListing } from "@/lib/share-listing";
 import { MediaReel } from "@/src/components/MediaReel";
+import type { FeedInterestEventType } from "@/lib/feed-interest";
 
 export function DesktopFeedView({
   navigation,
@@ -55,6 +57,8 @@ export function DesktopFeedView({
   onOpenOffer,
   onOpenGallery,
   onOpenDescription,
+  onActiveListingChange,
+  onListingInterest,
   notificationAction,
   onNearEnd,
   isLoadingMore = false
@@ -73,18 +77,25 @@ export function DesktopFeedView({
   onOpenOffer: (listing: CarListing) => void;
   onOpenGallery: (listing: CarListing, initialIndex: number) => void;
   onOpenDescription: (listing: CarListing) => void;
+  onActiveListingChange?: (listing: CarListing) => void;
+  onListingInterest?: (
+    listing: CarListing,
+    type: FeedInterestEventType,
+    metadata?: Record<string, unknown>
+  ) => void;
   notificationAction?: ReactNode;
   onNearEnd?: () => void;
   isLoadingMore?: boolean;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [, setVideoReadinessByUrl] = useState<
+  const [orderedListings, setOrderedListings] = useState(listings);
+  const [videoReadinessByUrl, setVideoReadinessByUrl] = useState<
     Record<string, FeedVideoReadiness>
   >({});
   const postRefs = useRef<Array<HTMLElement | null>>([]);
   const preloadTargets = useMemo(
-    () => collectFeedVideoPreloadTargets(listings, activeIndex),
-    [activeIndex, listings]
+    () => collectFeedVideoPreloadTargets(orderedListings, activeIndex),
+    [activeIndex, orderedListings]
   );
 
   const updateVideoReadiness = useCallback((url: string, state: FeedVideoReadiness) => {
@@ -101,14 +112,22 @@ export function DesktopFeedView({
   }, []);
 
   useEffect(() => {
+    setOrderedListings(listings);
     setActiveIndex(0);
     postRefs.current = [];
   }, [listings]);
 
   useEffect(() => {
+    const activeListing = orderedListings[activeIndex];
+    if (activeListing) {
+      onActiveListingChange?.(activeListing);
+    }
+  }, [activeIndex, onActiveListingChange, orderedListings]);
+
+  useEffect(() => {
     if (!focusListingId) return;
 
-    const index = listings.findIndex((listing) => listing.id === focusListingId);
+    const index = orderedListings.findIndex((listing) => listing.id === focusListingId);
 
     if (index < 0) {
       onFocusListingHandled?.();
@@ -118,7 +137,7 @@ export function DesktopFeedView({
     postRefs.current[index]?.scrollIntoView({ block: "start", behavior: "auto" });
     setActiveIndex(index);
     onFocusListingHandled?.();
-  }, [focusListingId, listings, onFocusListingHandled]);
+  }, [focusListingId, orderedListings, onFocusListingHandled]);
 
   const handleScroll = (event: UIEvent<HTMLElement>) => {
     const container = event.currentTarget;
@@ -137,6 +156,18 @@ export function DesktopFeedView({
       }
     });
 
+    const deferredListings = deferUnreadyVideoAtIndex({
+      listings: orderedListings,
+      index: nextIndex,
+      activeIndex,
+      videoReadinessByUrl
+    });
+
+    if (deferredListings) {
+      setOrderedListings(deferredListings);
+      return;
+    }
+
     setActiveIndex((current) => (current === nextIndex ? current : nextIndex));
 
     if (container.scrollHeight - container.scrollTop - container.clientHeight < container.clientHeight * 1.6) {
@@ -144,7 +175,7 @@ export function DesktopFeedView({
     }
   };
 
-  if (!listings.length) {
+  if (!orderedListings.length) {
     const hasSearch = Boolean(searchQuery.trim());
 
     return (
@@ -180,9 +211,9 @@ export function DesktopFeedView({
         onScroll={handleScroll}
       >
         <div className="h-full">
-          {listings.map((listing, index) => (
+          {orderedListings.map((listing, index) => (
             <DesktopFeedPost
-              key={listing.id}
+              key={`${listing.id}:${index}`}
               refCallback={(node) => {
                 postRefs.current[index] = node;
               }}
@@ -200,6 +231,7 @@ export function DesktopFeedView({
               onOpenOffer={() => onOpenOffer(listing)}
               onOpenGallery={(initialIndex) => onOpenGallery(listing, initialIndex)}
               onOpenDescription={() => onOpenDescription(listing)}
+              onTrackInterest={(type, metadata) => onListingInterest?.(listing, type, metadata)}
               notificationAction={index === activeIndex ? notificationAction : undefined}
               onFocus={() => setActiveIndex(index)}
             />
@@ -213,6 +245,40 @@ export function DesktopFeedView({
       </div>
     </section>
   );
+}
+
+function deferUnreadyVideoAtIndex({
+  listings,
+  index,
+  activeIndex,
+  videoReadinessByUrl
+}: {
+  listings: CarListing[];
+  index: number;
+  activeIndex: number;
+  videoReadinessByUrl: Record<string, FeedVideoReadiness>;
+}) {
+  if (index <= activeIndex || index >= listings.length - 1) {
+    return null;
+  }
+
+  const listing = listings[index];
+  if (!listing) return null;
+
+  const video = getListingPrimaryVideo(listing);
+  if (!video?.url) return null;
+
+  const deferralSlots = getVideoDeferralSlots(listing, videoReadinessByUrl[video.url]);
+  if (deferralSlots <= 0) return null;
+
+  const nextListings = [...listings];
+  const [deferredListing] = nextListings.splice(index, 1);
+  if (!deferredListing) return null;
+
+  const insertionIndex = Math.min(nextListings.length, index + deferralSlots);
+  nextListings.splice(insertionIndex, 0, deferredListing);
+
+  return nextListings;
 }
 
 function DesktopFeedPost({
@@ -229,6 +295,7 @@ function DesktopFeedPost({
   onOpenOffer,
   onOpenGallery,
   onOpenDescription,
+  onTrackInterest,
   notificationAction,
   onFocus
 }: {
@@ -245,6 +312,7 @@ function DesktopFeedPost({
   onOpenOffer: () => void;
   onOpenGallery: (initialIndex: number) => void;
   onOpenDescription: () => void;
+  onTrackInterest?: (type: FeedInterestEventType, metadata?: Record<string, unknown>) => void;
   notificationAction?: ReactNode;
   onFocus: () => void;
 }) {
@@ -296,7 +364,10 @@ function DesktopFeedPost({
             isActive={isActive}
             preloadMode={mediaPreloadMode}
             chromeHidden={feedChromeHidden}
-            onOpenGallery={onOpenGallery}
+            onOpenGallery={(initialIndex) => {
+              onTrackInterest?.("gallery_open", { initialIndex });
+              onOpenGallery(initialIndex);
+            }}
             layout={isSellerReel ? "seller" : "market"}
           />
 
@@ -377,7 +448,10 @@ function DesktopFeedPost({
         {!feedChromeHidden ? (
           <DesktopAiTeaser
             listing={listing}
-            onOpenAnalysis={onOpenAnalysis}
+            onOpenAnalysis={() => {
+              onTrackInterest?.("ai_open");
+              onOpenAnalysis();
+            }}
           />
         ) : null}
 
@@ -387,18 +461,29 @@ function DesktopFeedPost({
               label={isSaved ? "Saved" : "Save"}
               active={isSaved}
               icon={<Bookmark className={`h-5 w-5 ${isSaved ? "fill-black" : ""}`} />}
-              onClick={onToggleSaved}
+              onClick={() => {
+                if (!isSaved) {
+                  onTrackInterest?.("save");
+                }
+                onToggleSaved();
+              }}
             />
             <DesktopReelAction
               label="Share"
               icon={<Send className="h-5 w-5" />}
-              onClick={() => void shareListing(listing)}
+              onClick={() => {
+                onTrackInterest?.("share");
+                void shareListing(listing);
+              }}
             />
             {offerEnabled ? (
               <DesktopReelAction
                 label="Offer"
                 icon={<HandCoins className="h-5 w-5" />}
-                onClick={onOpenOffer}
+                onClick={() => {
+                  onTrackInterest?.("offer_open");
+                  onOpenOffer();
+                }}
               />
             ) : contactHref ? (
               <DesktopReelActionLink
@@ -406,18 +491,25 @@ function DesktopFeedPost({
                 href={contactHref}
                 external={contactIsExternal}
                 icon={contactActionIcon}
+                onClick={() => onTrackInterest?.("contact_open")}
               />
             ) : (
               <DesktopReelAction
                 label="Contact"
                 icon={<MessageCircle className="h-5 w-5" />}
-                onClick={onOpenAnalysis}
+                onClick={() => {
+                  onTrackInterest?.("ai_open");
+                  onOpenAnalysis();
+                }}
               />
             )}
             <DesktopReelAction
               label="AI"
               icon={<Sparkles className="h-5 w-5" />}
-              onClick={onOpenAnalysis}
+              onClick={() => {
+                onTrackInterest?.("ai_open");
+                onOpenAnalysis();
+              }}
             />
             {notificationAction}
           </div>
@@ -626,18 +718,21 @@ function DesktopReelActionLink({
   label,
   icon,
   href,
-  external = false
+  external = false,
+  onClick
 }: {
   label: string;
   icon: ReactNode;
   href: string;
   external?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <a
       href={href}
       target={external ? "_blank" : undefined}
       rel={external ? "noreferrer" : undefined}
+      onClick={onClick}
       className="group grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white shadow-[0_14px_34px_rgba(0,0,0,0.34)] backdrop-blur-2xl transition hover:-translate-y-0.5 hover:bg-white/18 active:scale-95"
       aria-label={label}
       title={label}

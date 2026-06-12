@@ -1,18 +1,31 @@
 import type { CarListing } from "@/data/listings";
 import { hasJunkMediaSignal, hasMediaMismatch, hasVerifiedVehicleMedia } from "@/lib/media-verification";
+import {
+  getDistanceSortValue,
+  getListingFreshnessRank,
+  getListingPersonalScore,
+  type FeedInterestState
+} from "@/lib/feed-interest";
 
 const longVideoFallbackSeconds = 95;
 
 export type MediaPreloadMode = "none" | "metadata" | "auto";
 
-export function rankFeedListings(listings: CarListing[]) {
+export function rankFeedListings(
+  listings: CarListing[],
+  options: { interestState?: FeedInterestState | null } = {}
+) {
   return listings
     .map((listing, index) => ({
       listing,
       index,
       sourceRank: getSourceRank(listing),
       trustRank: getTrustRank(listing),
-      mediaRank: getMediaRank(listing)
+      freshnessRank: getListingFreshnessRank(listing, options.interestState),
+      distanceRank: getDistanceSortValue(listing),
+      personalScore: getListingPersonalScore(listing, options.interestState),
+      mediaRank: getMediaRank(listing),
+      qualityScore: getQualityScore(listing)
     }))
     .sort((left, right) => {
       if (left.sourceRank !== right.sourceRank) {
@@ -23,8 +36,24 @@ export function rankFeedListings(listings: CarListing[]) {
         return left.trustRank - right.trustRank;
       }
 
+      if (left.freshnessRank !== right.freshnessRank) {
+        return left.freshnessRank - right.freshnessRank;
+      }
+
+      if (left.distanceRank !== right.distanceRank) {
+        return left.distanceRank - right.distanceRank;
+      }
+
+      if (left.personalScore !== right.personalScore) {
+        return right.personalScore - left.personalScore;
+      }
+
       if (left.mediaRank !== right.mediaRank) {
         return left.mediaRank - right.mediaRank;
+      }
+
+      if (left.qualityScore !== right.qualityScore) {
+        return right.qualityScore - left.qualityScore;
       }
 
       return left.index - right.index;
@@ -89,15 +118,46 @@ function getMediaRank(listing: CarListing) {
   if (videoDurations.length === 0) {
     return listing.mediaItems.some((item) => item.type === "video")
       ? getVideoDurationRank(longVideoFallbackSeconds)
-      : 0;
+      : 5;
   }
 
   return getVideoDurationRank(Math.max(...videoDurations));
 }
 
 function getVideoDurationRank(durationSeconds: number) {
-  if (durationSeconds <= 20) return 1;
-  if (durationSeconds <= 45) return 2;
-  if (durationSeconds <= 90) return 3;
-  return 4;
+  if (durationSeconds <= 20) return 0;
+  if (durationSeconds <= 45) return 1;
+  if (durationSeconds <= 90) return 2;
+  return 3;
+}
+
+function getQualityScore(listing: CarListing) {
+  let score = listing.confidence;
+  score += getDealGradeScore(listing.dealGrade);
+  score += Math.min(18, listing.mediaItems.length * 2);
+  score += Math.min(12, listing.imageUrls.length);
+  if (listing.price > 0) score += 8;
+  if (listing.mileage > 0) score += 8;
+  if (listing.contactUrl || listing.externalListingUrl || listing.sourceUrl) score += 5;
+  if (listing.lastSeenAt) score += 5;
+  return score;
+}
+
+function getDealGradeScore(grade: CarListing["dealGrade"]) {
+  switch (grade) {
+    case "A":
+      return 24;
+    case "A-":
+      return 20;
+    case "B+":
+      return 16;
+    case "B":
+      return 12;
+    case "C":
+      return 4;
+    case "Pass":
+      return -20;
+    default:
+      return 0;
+  }
 }
